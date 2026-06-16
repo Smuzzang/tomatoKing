@@ -235,6 +235,16 @@ function finalizeTurn(state) {
     if (got > 0) ctx.events.push(`피 +${got}`);
   }
 
+  // 애니메이션용: 이번 턴에 회수한 카드 정보 (바닥→먹은패 쓸어담기 연출)
+  state.lastCapture = {
+    seq: state.playSeq, by: state.turn,
+    handCard: ctx.h, deckCard: ctx.d || null,
+    handCaptured: ctx.hcap.length > 0,
+    deckCaptured: ctx.dcap.length > 0,
+    floorCards: cap.filter(c => c !== ctx.h && c !== ctx.d),
+    allIds: cap.map(c => c.id),
+  };
+
   state.events = ctx.events.slice();
   me.scoreInfo = window.Rules.scoreOf(me.captured);
   const score = me.scoreInfo.total;
