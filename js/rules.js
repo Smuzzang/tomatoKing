@@ -76,7 +76,9 @@ function bakMultiplier(winnerCap, loserCap, opts = {}) {
   // 고박(독박): 패자가 마지막에 GO 외쳤는데 짐
   if (opts.goBak) { mult *= 2; flags.push('고박'); }
   // 흔들기
-  if (opts.shake) { for (let i = 0; i < opts.shake; i++) { mult *= 2; } if (opts.shake) flags.push(`흔들기×${opts.shake}`); }
+  if (opts.shake) { for (let i = 0; i < opts.shake; i++) { mult *= 2; } flags.push(`흔들기×${opts.shake}`); }
+  // 폭탄
+  if (opts.bomb) { for (let i = 0; i < opts.bomb; i++) { mult *= 2; } flags.push(`폭탄×${opts.bomb}`); }
 
   return { multiplier: mult, flags };
 }

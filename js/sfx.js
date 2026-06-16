@@ -52,12 +52,36 @@
     init,
     toggleMute() { muted = !muted; if (master) master.gain.value = muted ? 0 : 0.5; return muted; },
 
-    // 손패 던지기 — 짧은 "착"
-    play() { if (!ctx || muted) return; const t = now(); noise(t, 0.09, 0.32, 1500); tone(420, t, 0.06, 'square', 0.05); },
-    // 더미 뒤집기 — 가벼운 블립
-    flip() { if (!ctx || muted) return; const t = now() + 0.04; noise(t, 0.06, 0.22, 2600); tone(700, t, 0.05, 'triangle', 0.06); },
-    // 카드 먹기 — 기분좋은 2음
-    capture() { if (!ctx || muted) return; const t = now(); tone(660, t, 0.1, 'triangle', 0.14); tone(990, t + 0.08, 0.14, 'triangle', 0.13); },
+    // 화투패 칠 때 — 물 묻은 회초리로 손바닥 맞는 "챱"
+    play() {
+      if (!ctx || muted) return; const t = now();
+      noise(t, 0.075, 0.5, 850);             // 젖은 찰싹(살집)
+      noise(t, 0.02, 0.4, 2600);             // 따끔한 표면음
+      tone(160, t, 0.09, 'sine', 0.26, 70);  // 둔탁한 thwack
+      noise(t + 0.045, 0.035, 0.18, 1300);   // 잔향 챱
+    },
+    slap() { this.play(); },
+    // 더미 뒤집어 칠 때 — 약간 가벼운 챱
+    flip() {
+      if (!ctx || muted) return; const t = now() + 0.02;
+      noise(t, 0.06, 0.4, 1050);
+      noise(t, 0.018, 0.3, 2800);
+      tone(200, t, 0.07, 'sine', 0.18, 100);
+    },
+    // 패가 좌측에 쌓일 때 — 종이 쓸리는 "싹싹"
+    capture() {
+      if (!ctx || muted) return; const t = now();
+      noise(t, 0.08, 0.16, 4200);
+      noise(t + 0.085, 0.07, 0.13, 3600);
+    },
+    paper() { this.capture(); },
+    // 턴 끝 정리 — "삭삭삭"
+    tidy() {
+      if (!ctx || muted) return; const t = now();
+      noise(t, 0.05, 0.14, 5200);
+      noise(t + 0.07, 0.05, 0.12, 4500);
+      noise(t + 0.14, 0.05, 0.1, 3900);
+    },
     // 쪽/따닥/싹쓸이 — 반짝 아르페지오
     sparkle() { if (!ctx || muted) return; const t = now(); [784, 988, 1319, 1568].forEach((f, i) => tone(f, t + i * 0.05, 0.16, 'triangle', 0.12)); },
     // 뻑 — 둔탁한 thud

@@ -240,6 +240,20 @@ button.link{background:none;border:none;color:#cfe6db;font-size:13px;cursor:poin
 .mute-btn{position:absolute;top:8px;right:10px;z-index:8;background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.2);
   color:#fff;width:34px;height:34px;border-radius:50%;font-size:15px;cursor:pointer;}
 
+/* 폭탄 버튼 */
+.bomb-btn{align-self:center;margin:0 auto 6px;background:linear-gradient(180deg,#ff5a4d,#c0271c);color:#fff;
+  border:2px solid #ffd24a;border-radius:24px;padding:8px 22px;font-size:16px;font-weight:900;cursor:pointer;
+  box-shadow:0 6px 18px rgba(226,59,46,.5);animation:bombPulse 1s ease-in-out infinite;}
+@keyframes bombPulse{0%,100%{transform:scale(1);}50%{transform:scale(1.07);box-shadow:0 8px 24px rgba(255,210,74,.7);}}
+
+/* 턴 타이머 */
+.timer{position:absolute;top:34px;left:50%;transform:translateX(-50%);z-index:7;
+  min-width:42px;height:42px;border-radius:50%;background:rgba(0,0,0,.55);border:3px solid var(--gold);
+  color:#fff;font-size:19px;font-weight:900;display:flex;align-items:center;justify-content:center;
+  box-shadow:0 4px 12px rgba(0,0,0,.4);}
+.timer.urgent{border-color:var(--tomato);color:#ffd2cc;animation:timerPulse .5s ease-in-out infinite;}
+@keyframes timerPulse{0%,100%{transform:translateX(-50%) scale(1);}50%{transform:translateX(-50%) scale(1.18);}}
+
 /* 큰 금박 컷 (N고 / 피박 / 총통) */
 .bigcut{position:fixed;inset:0;z-index:17;display:flex;align-items:center;justify-content:center;pointer-events:none;}
 .bigcut .cut{

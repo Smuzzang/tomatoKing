@@ -46,6 +46,7 @@ function initLobby() {
   // 테이블 클릭 위임
   $('#myHand').addEventListener('click', onHandClick);
   $('#floor').addEventListener('click', onFloorClick);
+  $('#bombBtn').addEventListener('click', onBombClick);
   $('#muteBtn').addEventListener('click', () => {
     const m = window.SFX ? SFX.toggleMute() : false;
     $('#muteBtn').textContent = m ? '🔇' : '🔊';
@@ -86,14 +87,8 @@ function startHost() {
   App.net = window.Net.host({
     onReady: code => { $('#roomCode').textContent = code; $('#waitMsg').textContent = '상대 접속을 기다리는 중…'; },
     onGuestJoin: () => {
-      const seed = (Math.random() * 1e9) | 0;
-      App.state = window.Engine.newGame({
-        seed, names: [App.nick, '상대'], aiFlags: [false, false], mode: 'classic',
-      });
-      // 게스트 닉네임 요청
-      App.net.send({ t: 'whoami', name: App.nick });
-      App._seq = 0; App._cap = [0, 0]; App._go = [0, 0]; App._freshDeal = true;
-      show('table'); dealTicks(); afterChange();
+      App.net.send({ t: 'whoami', name: App.nick }); // 게스트 닉네임 요청
+      hostStartGame();
     },
     onData: onHostData,
     onClose: () => { toast('상대 연결이 끊겼어요'); setTimeout(() => show('lobby'), 1500); },
@@ -121,6 +116,7 @@ function onHostData(msg) {
     if (App.state) { App.state.players[1].name = (msg.name || '상대').slice(0, 8); render(); broadcast(); }
     return;
   }
+  if (msg.t === 'rematch') { hostStartGame(); return; }
   if (msg.t === 'intent') applyGuestIntent(msg.intent);
 }
 function onGuestData(msg) {
@@ -128,7 +124,13 @@ function onGuestData(msg) {
   if (msg.t === 'whoami') { App._hostName = (msg.name || '상대').slice(0, 8); return; }
   if (msg.t === 'state') {
     App.busy = false;
-    App.state = msg.snap;
+    const snap = msg.snap;
+    // 새 게임(재대국) 감지 → 카운터 리셋 + 결과 모달 닫기
+    const fresh = (!snap.playSeq) && snap.phase === 'await_play'
+      && snap.players[0].captured.length === 0 && snap.players[1].captured.length === 0;
+    if (fresh) { App._seq = 0; App._cap = [0, 0]; App._go = [0, 0]; App._freshDeal = true; }
+    if (snap.phase !== 'ended') $('#modal').hidden = true;
+    App.state = snap;
     if (App._hostName) App.state.players[0].name = App._hostName;
     show('table');
     render();
@@ -142,6 +144,7 @@ function applyGuestIntent(intent) {
   // 게스트는 players[1]. 그의 차례일 때만 허용
   if (s.turn !== 1) return;
   if (intent.type === 'play' && s.phase === 'await_play') window.Engine.playCard(s, intent.cardId);
+  else if (intent.type === 'bomb' && s.phase === 'await_play') window.Engine.playBomb(s, intent.month);
   else if (intent.type === 'match' && s.phase === 'await_match') window.Engine.resolveMatch(s, intent.chosenId);
   else if (intent.type === 'goStop' && s.phase === 'await_go_stop') window.Engine.decideGoStop(s, intent.decision);
   else return;
@@ -207,11 +210,16 @@ function aiStep() {
   const s = App.state; if (!s || s.phase === 'ended') return;
   const cur = s.players[s.turn]; if (!cur.isAI) return;
   if (s.phase === 'await_play') {
-    let id = window.AI.chooseCard(s);
-    if (App.diff === 'easy' && Math.random() < 0.4) {       // 쉬움: 가끔 랜덤
-      const h = cur.hand[(Math.random() * cur.hand.length) | 0]; id = h.id;
+    const bombs = window.Engine.bombableMonths(s);
+    if (bombs.length && App.diff !== 'easy') {              // AI 폭탄
+      window.Engine.playBomb(s, bombs[0]);
+    } else {
+      let id = window.AI.chooseCard(s);
+      if (App.diff === 'easy' && Math.random() < 0.4) {     // 쉬움: 가끔 랜덤
+        const h = cur.hand[(Math.random() * cur.hand.length) | 0]; id = h.id;
+      }
+      window.Engine.playCard(s, id);
     }
-    window.Engine.playCard(s, id);
   } else if (s.phase === 'await_match') {
     window.Engine.resolveMatch(s, window.AI.chooseMatch(s));
   } else if (s.phase === 'await_go_stop') {
@@ -231,6 +239,14 @@ function onHandClick(e) {
   App._playSrcRect = el.getBoundingClientRect(); // 낙하 애니메이션 출발점(클릭한 카드)
   if (App.mode === 'guest') { App.busy = true; App.net.send({ t: 'intent', intent: { type: 'play', cardId: id } }); return; }
   window.Engine.playCard(s, id); afterChange();
+}
+function onBombClick() {
+  const s = App.state;
+  if (!s || s.phase !== 'await_play' || s.turn !== App.myIdx) return;
+  const month = Number($('#bombBtn').dataset.month);
+  $('#bombBtn').hidden = true;
+  if (App.mode === 'guest') { App.busy = true; App.net.send({ t: 'intent', intent: { type: 'bomb', month } }); return; }
+  window.Engine.playBomb(s, month); afterChange();
 }
 function onFloorClick(e) {
   const el = e.target.closest('.card'); if (!el || !el.dataset.cardId) return;
@@ -279,9 +295,12 @@ function showResult(result) {
     else if (result.winner === App.myIdx) SFX.win();
     else SFX.lose();
   }
+  const actions = `<div class="modal-actions">
+      <button class="btn-again" id="mAgain">다시하기</button>
+      <button class="btn-home" id="mHome">${App.mode === 'single' ? '메인' : '게임방 나가기'}</button>
+    </div>`;
   if (result.draw) {
-    box.innerHTML = `<h2>나가리 😶</h2><p class="muted">둘 다 점수를 못 냈어요</p>
-      <div class="modal-actions"><button class="btn-again" id="mAgain">다시</button><button class="btn-home" id="mHome">나가기</button></div>`;
+    box.innerHTML = `<h2>나가리 😶</h2><p class="muted">둘 다 점수를 못 냈어요</p>${actions}`;
   } else {
     const iWon = result.winner === App.myIdx;
     const w = App.state.players[result.winner];
@@ -293,20 +312,36 @@ function showResult(result) {
       <div class="parts">
         기본 ${result.base}점${result.goCount ? ` · ${result.goCount}고 → ${result.withGo}점` : ''}${result.multiplier > 1 ? ` · ×${result.multiplier}` : ''}
         <br>${scoreParts(w.captured)}
-      </div>
-      <div class="modal-actions">
-        <button class="btn-again" id="mAgain">${App.mode === 'single' ? '다시하기' : '나가기'}</button>
-        ${App.mode === 'single' ? '<button class="btn-home" id="mHome">메인</button>' : ''}
-      </div>`;
+      </div>${actions}`;
   }
   $('#modal').hidden = false;
-  const again = $('#mAgain'), home = $('#mHome');
-  if (again) again.onclick = () => {
-    $('#modal').hidden = true;
-    if (App.mode === 'single') startSingle();
-    else { App.net && App.net.close(); show('lobby'); }
-  };
-  if (home) home.onclick = () => { $('#modal').hidden = true; App.net && App.net.close(); show('lobby'); };
+  $('#mAgain').onclick = rematch;
+  $('#mHome').onclick = leaveToLobby;
+}
+
+/* 다시하기 / 나가기 */
+function rematch() {
+  stopTimer();
+  if (App.mode === 'single') { startSingle(); return; }
+  if (App.mode === 'host') { hostStartGame(); return; }
+  // guest → 호스트에 재대국 요청
+  $('#modal').hidden = true;
+  App.net && App.net.send({ t: 'rematch' });
+  toast('재대국 요청을 보냈어요…');
+}
+function leaveToLobby() {
+  stopTimer();
+  $('#modal').hidden = true;
+  if (App.net) { App.net.close(); App.net = null; }
+  show('lobby');
+}
+function hostStartGame() {
+  const names = App.state ? [App.state.players[0].name, App.state.players[1].name] : [App.nick, '상대'];
+  const seed = (Math.random() * 1e9) | 0;
+  App.state = window.Engine.newGame({ seed, names, aiFlags: [false, false], mode: 'classic' });
+  App._seq = 0; App._cap = [0, 0]; App._go = [0, 0]; App._freshDeal = true;
+  $('#modal').hidden = true;
+  show('table'); dealTicks(); afterChange();
 }
 
 /* ---------------- 렌더링 ---------------- */
@@ -380,11 +415,77 @@ function render() {
   tagEl.classList.toggle('mine', myTurn && s.phase !== 'ended');
   $('#statusbar').textContent = choosing ? '같은 월 2장 중 하나를 선택!' : '';
 
+  // 폭탄 버튼
+  const bombEl = $('#bombBtn');
+  if (myTurn && s.phase === 'await_play') {
+    const bombs = window.Engine.bombableMonths(s);
+    if (bombs.length) { bombEl.hidden = false; bombEl.dataset.month = bombs[0]; bombEl.textContent = `💣 ${bombs[0]}월 폭탄`; }
+    else bombEl.hidden = true;
+  } else bombEl.hidden = true;
+
   // 첫 딜링: 카드 일제히 팝인
   if (App._freshDeal) {
     App._freshDeal = false;
     const cards = [...$('#floor').querySelectorAll('.card'), ...$('#myHand').querySelectorAll('.card')];
     cards.forEach((c, i) => { c.style.animationDelay = (i * 35) + 'ms'; c.classList.add('pop'); });
+  }
+
+  manageTimer(s); // 20초 턴 제한
+}
+
+/* ---------------- 턴 타이머(20초) ---------------- */
+const TURN_LIMIT = 20;
+function manageTimer(s) {
+  const actionable = ['await_play', 'await_match', 'await_go_stop'].includes(s.phase);
+  if (!actionable || s.phase === 'ended' || s.turn !== App.myIdx) { stopTimer(); return; }
+  const key = `${s.playSeq || 0}-${s.phase}-${s.turn}`;
+  if (key === App._timerKey) return; // 같은 결정점 → 유지
+  restartTimer(key);
+}
+function restartTimer(key) {
+  stopTimer();
+  App._timerKey = key;
+  App._timerLeft = TURN_LIMIT;
+  renderTimer();
+  App._timerInt = setInterval(() => {
+    App._timerLeft--;
+    renderTimer();
+    if (App._timerLeft <= 0) { stopTimer(); autoAct(); }
+  }, 1000);
+}
+function stopTimer() {
+  if (App._timerInt) { clearInterval(App._timerInt); App._timerInt = null; }
+  App._timerKey = null;
+  const el = $('#timer'); if (el) el.hidden = true;
+}
+function renderTimer() {
+  const el = $('#timer'); if (!el) return;
+  el.hidden = false;
+  el.textContent = App._timerLeft;
+  el.classList.toggle('urgent', App._timerLeft <= 5);
+}
+function autoAct() {
+  const s = App.state; if (!s || s.turn !== App.myIdx) return;
+  const guest = App.mode === 'guest';
+  if (s.phase === 'await_play') {
+    const bombs = window.Engine.bombableMonths(s);
+    if (bombs.length) {
+      if (guest) App.net.send({ t: 'intent', intent: { type: 'bomb', month: bombs[0] } });
+      else { window.Engine.playBomb(s, bombs[0]); afterChange(); }
+      return;
+    }
+    const id = window.AI.chooseCard(s);
+    App._playSrcRect = null;
+    if (guest) App.net.send({ t: 'intent', intent: { type: 'play', cardId: id } });
+    else { window.Engine.playCard(s, id); afterChange(); }
+  } else if (s.phase === 'await_match') {
+    const id = window.AI.chooseMatch(s);
+    if (guest) App.net.send({ t: 'intent', intent: { type: 'match', chosenId: id } });
+    else { window.Engine.resolveMatch(s, id); afterChange(); }
+  } else if (s.phase === 'await_go_stop') {
+    $('#modal').hidden = true;
+    if (guest) App.net.send({ t: 'intent', intent: { type: 'goStop', decision: 'stop' } });
+    else { window.Engine.decideGoStop(s, 'stop'); afterChange(); }
   }
 }
 
@@ -450,9 +551,10 @@ function applyJuice(ev) {
   const cc = [s.players[0].captured.length, s.players[1].captured.length];
   const prev = App._cap || cc;
   if (cc[0] > prev[0] || cc[1] > prev[1]) {
-    setTimeout(() => window.SFX && SFX.capture(), capDelay);
+    setTimeout(() => window.SFX && SFX.capture(), capDelay);                 // 싹싹(쌓임)
     if (cc[App.myIdx] > prev[App.myIdx]) setTimeout(() => bump('#myCap'), capDelay);
     if (cc[1 - App.myIdx] > prev[1 - App.myIdx]) setTimeout(() => bump('#oppCap'), capDelay);
+    setTimeout(() => window.SFX && SFX.tidy(), capDelay + (mine ? 480 : 260)); // 삭삭삭(정리)
   }
   App._cap = cc;
 
@@ -479,6 +581,7 @@ function showBigCut(text, red) {
 const EVENT_MAP = {
   '쪽': ['쪽! 🎯', 'gold'], '뻑': ['뻑! 💥', 'red'], '따닥': ['따닥! ⚡', 'gold'],
   '뻑먹기': ['뻑 회수! 🍱', 'gold'], '싹쓸이': ['싹쓸이! 🧹', 'gold'],
+  '폭탄': ['폭탄! 💣', 'red'], '흔들기': ['흔들기! 🃏', 'gold'],
 };
 function fireEvent(e) {
   if (e.startsWith('피')) { toast(e, 'blue'); return; }
@@ -580,8 +683,11 @@ const HELP_HTML = `
 · <b>고도리</b>(2·4·8월 새 3장)=5점, <b>홍단/청단/초단</b> 각 3점<br>
 · <b>열끗·띠</b> 5장부터 1점씩, <b>피</b> 10장부터 1점씩(쌍피=2장)<br>
 <b>특수</b> 쪽·뻑·따닥·싹쓸이 시 상대 피 1장씩 빼앗아요.<br>
+<b>폭탄</b> 같은 월 3장+바닥 매칭이면 한 번에 털고 한 번 더! 점수 ×2<br>
+<b>흔들기</b> 손에 같은 월 3장 들고 그 월을 내면 ×2<br>
 <b>고/스톱</b> 7점 넘으면 선택! 고 하면 점수 ↑(3고부터 ×2), 진 사람이 고했으면 <b>고박</b>.<br>
-<b>박</b> 피박·광박으로 점수 2배가 될 수 있어요.`;
+<b>박</b> 피박(상대 피 7장 미만)·광박(상대 광 0장)으로 점수 ×2.<br>
+<b>턴 제한</b> 한 턴 20초! 넘기면 자동으로 진행돼요.`;
 
 /* ---------------- 부팅 ---------------- */
 window.addEventListener('DOMContentLoaded', initLobby);

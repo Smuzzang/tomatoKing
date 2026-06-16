@@ -63,13 +63,14 @@ function newGame({ seed, names = ['나', '상대'], aiFlags = [false, true], mod
     players: [0, 1].map(i => ({
       id: i, name: names[i], isAI: aiFlags[i],
       hand: hands[i], captured: [],
-      goCount: 0, scoreAtGo: 0, shake: 0,
+      goCount: 0, scoreAtGo: 0, shake: 0, bomb: 0, shakeMonths: [],
     })),
     turn: 0,           // 선(先) = 0
     starter: 0,
     phase: 'await_play',
     choice: null,
     turnCtx: null,
+    extraTurn: false,  // 폭탄 시 한 번 더
     events: [],
     winner: null,
     result: null,
@@ -98,15 +99,33 @@ function handHints(state) {
   }));
 }
 
+/* 폭탄 가능한 월: 손에 같은 월 3장 이상 + 바닥에 그 월 1장 이상 */
+function bombableMonths(state) {
+  const me = state.players[state.turn];
+  const cnt = {};
+  me.hand.forEach(c => cnt[c.month] = (cnt[c.month] || 0) + 1);
+  return Object.keys(cnt)
+    .map(Number)
+    .filter(m => cnt[m] >= 3 && floorOfMonth(state, m).length >= 1);
+}
+
 /* ---- 손패 내기 ---- */
 function playCard(state, cardId) {
   if (state.phase !== 'await_play') return err('지금은 카드를 낼 수 없습니다');
   const me = state.players[state.turn];
   const hi = me.hand.findIndex(c => c.id === cardId);
   if (hi === -1) return err('손에 없는 카드');
-  const h = me.hand.splice(hi, 1)[0];
+  const h = me.hand[hi];
+  // 흔들기: 그 월을 3장 이상 들고 있고 이번이 첫 공개면 ×2
+  const monthCnt = me.hand.filter(c => c.month === h.month).length;
+  me.hand.splice(hi, 1);
   const d = state.deck.length ? state.deck.shift() : null; // 더미 위(top) 한 장
   state.turnCtx = { h, d, hcap: [], dcap: [], pi: 0, took3: false, events: [] };
+  if (monthCnt >= 3 && !me.shakeMonths.includes(h.month)) {
+    me.shakeMonths.push(h.month);
+    me.shake = (me.shake || 0) + 1;
+    state.turnCtx.events.push('흔들기');
+  }
   state.playSeq = (state.playSeq || 0) + 1;
   state.lastPlay = { hand: h, deck: d, by: state.turn, seq: state.playSeq };
   return beginResolve(state);
@@ -230,6 +249,8 @@ function finalizeTurn(state) {
 }
 
 function endTurnAdvance(state) {
+  const extra = state.extraTurn;   // 폭탄 → 한 번 더
+  state.extraTurn = false;
   state.turnCtx = null;
   state.choice = null;
   // 나가리: 양쪽 손패 소진
@@ -238,9 +259,40 @@ function endTurnAdvance(state) {
     state.result = { draw: true };
     return { ok: true, ended: true };
   }
-  state.turn = oppOf(state.turn);
+  if (!extra) state.turn = oppOf(state.turn);
+  // 손패가 빈 사람 차례면 상대에게 넘김
+  if (state.players[state.turn].hand.length === 0) state.turn = oppOf(state.turn);
   state.phase = 'await_play';
   return { ok: true };
+}
+
+/* ---- 폭탄: 같은 월 3장으로 한 번에 털기 ---- */
+function playBomb(state, month) {
+  if (state.phase !== 'await_play') return err('지금은 폭탄을 칠 수 없습니다');
+  month = Number(month);
+  const me = state.players[state.turn];
+  const handM = me.hand.filter(c => c.month === month);
+  const floorM = floorOfMonth(state, month);
+  if (handM.length < 3 || floorM.length < 1) return err('폭탄 조건이 아닙니다');
+
+  const three = handM.slice(0, 3);
+  // 손에서 3장 제거
+  removeById(me.hand, three.map(c => c.id));
+  // 바닥의 그 월 전부 제거
+  removeById(state.floor, floorM.map(c => c.id));
+
+  const d = state.deck.length ? state.deck.shift() : null;
+  state.playSeq = (state.playSeq || 0) + 1;
+  state.lastPlay = { hand: three[0], deck: d, by: state.turn, seq: state.playSeq, bomb: true };
+
+  me.bomb = (me.bomb || 0) + 1;       // ×2 배수
+  state.extraTurn = true;             // 한 번 더
+  state.turnCtx = {
+    h: three[0], d, hcap: [...three, ...floorM], dcap: [],
+    pi: 1, took3: false, events: ['폭탄'],
+  };
+  // 더미 패 정산(매칭/깔림/선택) 후 마무리
+  return resolveStage(state, 'deck', d);
 }
 
 /* 고/스톱 결정 */
@@ -262,7 +314,7 @@ function finishGame(state, winner) {
   const base = window.Rules.scoreOf(w.captured).total;
   const withGo = window.Rules.applyGo(base, w.goCount);
   const goBak = lo.goCount > 0; // 패자가 고 외쳤었다 → 고박
-  const bak = window.Rules.bakMultiplier(w.captured, lo.captured, { goBak, shake: w.shake });
+  const bak = window.Rules.bakMultiplier(w.captured, lo.captured, { goBak, shake: w.shake, bomb: w.bomb });
   const final = withGo * bak.multiplier;
   state.phase = 'ended';
   state.winner = winner;
@@ -281,4 +333,5 @@ function clone(state) { return JSON.parse(JSON.stringify(state)); }
 window.Engine = {
   MIN_GO, newGame, handHints, playCard, resolveMatch,
   decideGoStop, finishGame, floorOfMonth, clone, oppOf,
+  playBomb, bombableMonths,
 };
