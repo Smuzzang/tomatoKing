@@ -225,6 +225,7 @@ function onHandClick(e) {
   const s = App.state;
   if (!s || s.phase !== 'await_play' || s.turn !== App.myIdx) return;
   const id = el.dataset.cardId;
+  App._playSrcRect = el.getBoundingClientRect(); // 낙하 애니메이션 출발점(클릭한 카드)
   if (App.mode === 'guest') { App.busy = true; App.net.send({ t: 'intent', intent: { type: 'play', cardId: id } }); return; }
   window.Engine.playCard(s, id); afterChange();
 }
@@ -307,6 +308,17 @@ function showResult(result) {
 /* ---------------- 렌더링 ---------------- */
 function render() {
   const s = App.state; if (!s) return;
+  // 직전 바닥 카드 위치 스냅샷 (낙하 애니메이션 타겟용 — innerHTML 교체 전에)
+  const pf = {};
+  $('#floor').querySelectorAll('.card').forEach(c => {
+    const id = c.dataset.cardId; if (!id) return;
+    const r = c.getBoundingClientRect();
+    pf[id] = r;
+    const mm = id.slice(1, id.indexOf('_'));
+    if (mm && !pf['M' + mm]) pf['M' + mm] = r;
+  });
+  App._prevFloorRects = pf;
+
   const me = s.players[App.myIdx], opp = s.players[1 - App.myIdx];
   const myTurn = s.turn === App.myIdx && s.phase !== 'ended';
 
@@ -407,15 +419,19 @@ function scoreParts(cards) {
 function applyJuice(ev) {
   const s = App.state; if (!s) return;
 
-  // 카드 리빌 + 내기/뒤집기 소리 + 팝
+  // 카드 낙하 연출: 낸 패 → 바닥 매칭 위치로 촥! / 더미 → 매칭 위치로
   const seq = s.playSeq || 0;
   if (seq !== App._seq) {
     App._seq = seq;
     if (s.lastPlay) {
-      showReveal(s.lastPlay);
+      const lp = s.lastPlay;
+      const handSrc = (lp.by === App.myIdx && App._playSrcRect) ? App._playSrcRect : handAreaSrc(lp.by);
+      App._playSrcRect = null;
+      flyCard(handSrc, flyTarget(lp.hand), lp.hand);
       window.SFX && SFX.play();
-      if (s.lastPlay.deck) setTimeout(() => window.SFX && SFX.flip(), 130);
-      markPop(s.lastPlay);
+      if (lp.deck) {
+        setTimeout(() => { flyCard(deckSrc(), flyTarget(lp.deck), lp.deck); window.SFX && SFX.flip(); }, 240);
+      }
     }
   }
 
@@ -494,17 +510,54 @@ function markPop(lastPlay) {
   });
 }
 
-function showReveal(lastPlay) {
-  const rv = $('#reveal'); if (!rv) return;
-  const H = window.Hwatu;
-  let html = `<div class="rv hand"><span class="lab">냄</span>${cardHTML(lastPlay.hand)}</div>`;
-  if (lastPlay.deck) html += `<div class="rv deck"><span class="lab">뒤집기</span>${cardHTML(lastPlay.deck)}</div>`;
-  rv.innerHTML = html; rv.className = 'reveal'; rv.hidden = false;
-  clearTimeout(App._revealTo);
-  App._revealTo = setTimeout(() => { rv.className = 'reveal out'; setTimeout(() => rv.hidden = true, 280); }, 850);
+/* ── 카드 낙하(촥!) 애니메이션 ── */
+function rectOf(sel) { const el = $(sel); return el ? el.getBoundingClientRect() : null; }
+function handAreaSrc(byIdx) {
+  const r = rectOf(byIdx === App.myIdx ? '#myHand' : '#oppHand');
+  if (!r) return { left: innerWidth / 2, top: innerHeight / 2, width: 64, height: 105 };
+  return { left: r.left + r.width / 2 - 32, top: r.top, width: 64, height: 105 };
 }
-function cardHTML(card) {
-  return `<div class="card">${window.Hwatu.cardFaceSVG(card)}</div>`;
+function deckSrc() {
+  const r = rectOf('#deck') || rectOf('.deck-wrap');
+  return { left: r.left, top: r.top, width: r.width || 64, height: r.height || 105 };
+}
+/* 낸/뒤집은 카드가 떨어질 바닥 지점 */
+function flyTarget(card) {
+  const pf = App._prevFloorRects || {};
+  if (pf['M' + card.month]) return pf['M' + card.month];            // 매칭된 바닥 패 자리
+  const el = $('#floor').querySelector(`.card[data-card-id="${card.id}"]`); // 그냥 깔린 자리
+  if (el) return el.getBoundingClientRect();
+  const fr = $('#floor').getBoundingClientRect();
+  return { left: fr.left + fr.width / 2 - 32, top: fr.top + fr.height / 2 - 52, width: 64, height: 105 };
+}
+function flyCard(src, tgt, card) {
+  if (!src || !tgt) return;
+  const fly = document.createElement('div');
+  fly.className = 'fly-card';
+  fly.innerHTML = window.Hwatu.cardFaceSVG(card);
+  fly.style.left = src.left + 'px';
+  fly.style.top = src.top + 'px';
+  fly.style.width = (tgt.width || 64) + 'px';
+  fly.style.height = (tgt.height || 105) + 'px';
+  document.body.appendChild(fly);
+  const dx = tgt.left - src.left, dy = tgt.top - src.top;
+  const rot = (Math.random() * 16 - 8).toFixed(1);
+  const anim = fly.animate([
+    { transform: `translate(0px,0px) scale(1.35) rotate(${rot}deg)`, opacity: 0.7, offset: 0 },
+    { transform: `translate(${dx * 0.82}px,${dy * 0.82}px) scale(1.14) rotate(${(rot / 2)}deg)`, opacity: 1, offset: 0.5 },
+    { transform: `translate(${dx}px,${dy}px) scale(0.9) rotate(0deg)`, opacity: 1, offset: 0.78 }, // 촥! 찰싹
+    { transform: `translate(${dx}px,${dy}px) scale(1) rotate(0deg)`, opacity: 1, offset: 1 },
+  ], { duration: 300, easing: 'cubic-bezier(.35,.85,.25,1)', fill: 'forwards' });
+  anim.onfinish = () => fly.remove();
+  setTimeout(() => impactAt(tgt), 232); // 착지 충격 효과
+}
+function impactAt(tgt) {
+  const d = document.createElement('div');
+  d.className = 'impact';
+  d.style.left = (tgt.left + (tgt.width || 64) / 2) + 'px';
+  d.style.top = (tgt.top + (tgt.height || 105) / 2) + 'px';
+  document.body.appendChild(d);
+  setTimeout(() => d.remove(), 380);
 }
 
 /* ---------------- 도움말 ---------------- */
