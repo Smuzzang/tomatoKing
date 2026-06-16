@@ -181,23 +181,26 @@ function postRender() {
   if (App.mode === 'single') {
     const cur = s.players[s.turn];
     if (cur.isAI) { setTimeout(aiStep, aiDelay(s.phase)); return; }
-    if (s.phase === 'await_go_stop' && isMine) showGoStop();
+    if (s.phase === 'await_go_stop' && isMine) showGoStopSoon();
     return;
   }
   if (App.mode === 'host') {
-    if (s.phase === 'await_go_stop' && s.turn === 0) showGoStop();
+    if (s.phase === 'await_go_stop' && s.turn === 0) showGoStopSoon();
     return;
   }
   if (App.mode === 'guest') {
-    if (s.phase === 'await_go_stop' && s.turn === 1) showGoStop();
+    if (s.phase === 'await_go_stop' && s.turn === 1) showGoStopSoon();
     return;
   }
 }
 
+// 내 카드 낙하 연출이 끝난 뒤 고/스톱 모달
+function showGoStopSoon() { setTimeout(showGoStop, 1050); }
+
 function aiDelay(phase) {
   if (phase === 'await_go_stop') return 1100;
   if (phase === 'await_match') return 650;
-  return 950; // await_play — 리빌 연출이 보이도록 여유
+  return 1100; // await_play — 사람 낙하 연출이 끝난 뒤 AI가 움직이도록
 }
 
 function aiStep() {
@@ -242,6 +245,7 @@ function onFloorClick(e) {
 /* ---------------- 고/스톱 모달 ---------------- */
 function showGoStop() {
   const s = App.state;
+  if (!s || s.phase !== 'await_go_stop') return; // 지연 호출 사이 상태가 바뀌었으면 무시
   const me = s.players[s.turn];
   const sc = (me.scoreInfo || window.Rules.scoreOf(me.captured)).total;
   const box = $('#modalBox');
@@ -419,29 +423,36 @@ function scoreParts(cards) {
 function applyJuice(ev) {
   const s = App.state; if (!s) return;
 
+  // 내 턴이면 더 천천히(몰입감), 상대/AI 턴이면 빠르게
+  const lp = s.lastPlay;
+  const mine = !!(lp && lp.by === App.myIdx);
+  const dur = mine ? 400 : 300;          // 카드 비행 시간
+  const deckDelay = mine ? 560 : 240;    // 손패 착지 후 더미 뒤집기까지
+  const capDelay = mine ? (lp && lp.deck ? 1000 : 560) : 260;
+  const evBase = mine ? 900 : 220;
+
   // 카드 낙하 연출: 낸 패 → 바닥 매칭 위치로 촥! / 더미 → 매칭 위치로
   const seq = s.playSeq || 0;
   if (seq !== App._seq) {
     App._seq = seq;
-    if (s.lastPlay) {
-      const lp = s.lastPlay;
-      const handSrc = (lp.by === App.myIdx && App._playSrcRect) ? App._playSrcRect : handAreaSrc(lp.by);
+    if (lp) {
+      const handSrc = (mine && App._playSrcRect) ? App._playSrcRect : handAreaSrc(lp.by);
       App._playSrcRect = null;
-      flyCard(handSrc, flyTarget(lp.hand), lp.hand);
+      flyCard(handSrc, flyTarget(lp.hand), lp.hand, dur);
       window.SFX && SFX.play();
       if (lp.deck) {
-        setTimeout(() => { flyCard(deckSrc(), flyTarget(lp.deck), lp.deck); window.SFX && SFX.flip(); }, 240);
+        setTimeout(() => { flyCard(deckSrc(), flyTarget(lp.deck), lp.deck, dur); window.SFX && SFX.flip(); }, deckDelay);
       }
     }
   }
 
-  // 획득 증가 → 소리 + 반짝
+  // 획득 증가 → 소리 + 반짝 (낙하 애니메이션 끝난 뒤)
   const cc = [s.players[0].captured.length, s.players[1].captured.length];
   const prev = App._cap || cc;
   if (cc[0] > prev[0] || cc[1] > prev[1]) {
-    setTimeout(() => window.SFX && SFX.capture(), 260);
-    if (cc[App.myIdx] > prev[App.myIdx]) bump('#myCap');
-    if (cc[1 - App.myIdx] > prev[1 - App.myIdx]) bump('#oppCap');
+    setTimeout(() => window.SFX && SFX.capture(), capDelay);
+    if (cc[App.myIdx] > prev[App.myIdx]) setTimeout(() => bump('#myCap'), capDelay);
+    if (cc[1 - App.myIdx] > prev[1 - App.myIdx]) setTimeout(() => bump('#oppCap'), capDelay);
   }
   App._cap = cc;
 
@@ -453,8 +464,8 @@ function applyJuice(ev) {
   }
   App._go = go;
 
-  // 이벤트별 토스트 + 효과
-  (ev || []).forEach((e, i) => setTimeout(() => fireEvent(e), 220 + i * 240));
+  // 이벤트별 토스트 + 효과 (우측 중앙) — 낙하 끝난 뒤 표시
+  (ev || []).forEach((e, i) => setTimeout(() => fireEvent(e), evBase + i * 280));
 }
 
 function showBigCut(text, red) {
@@ -530,8 +541,9 @@ function flyTarget(card) {
   const fr = $('#floor').getBoundingClientRect();
   return { left: fr.left + fr.width / 2 - 32, top: fr.top + fr.height / 2 - 52, width: 64, height: 105 };
 }
-function flyCard(src, tgt, card) {
+function flyCard(src, tgt, card, dur) {
   if (!src || !tgt) return;
+  const D = dur || 300;
   const fly = document.createElement('div');
   fly.className = 'fly-card';
   fly.innerHTML = window.Hwatu.cardFaceSVG(card);
@@ -547,9 +559,9 @@ function flyCard(src, tgt, card) {
     { transform: `translate(${dx * 0.82}px,${dy * 0.82}px) scale(1.14) rotate(${(rot / 2)}deg)`, opacity: 1, offset: 0.5 },
     { transform: `translate(${dx}px,${dy}px) scale(0.9) rotate(0deg)`, opacity: 1, offset: 0.78 }, // 촥! 찰싹
     { transform: `translate(${dx}px,${dy}px) scale(1) rotate(0deg)`, opacity: 1, offset: 1 },
-  ], { duration: 300, easing: 'cubic-bezier(.35,.85,.25,1)', fill: 'forwards' });
+  ], { duration: D, easing: 'cubic-bezier(.35,.85,.25,1)', fill: 'forwards' });
   anim.onfinish = () => fly.remove();
-  setTimeout(() => impactAt(tgt), 232); // 착지 충격 효과
+  setTimeout(() => impactAt(tgt), Math.round(D * 0.77)); // 착지 충격 효과
 }
 function impactAt(tgt) {
   const d = document.createElement('div');
