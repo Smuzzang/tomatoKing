@@ -47,6 +47,8 @@ function initLobby() {
   $('#myHand').addEventListener('click', onHandClick);
   $('#floor').addEventListener('click', onFloorClick);
   $('#bombBtn').addEventListener('click', onBombClick);
+  $('#chatSend').addEventListener('click', sendChat);
+  $('#chatText').addEventListener('keydown', e => { if (e.key === 'Enter') sendChat(); });
   $('#muteBtn').addEventListener('click', () => {
     const m = window.SFX ? SFX.toggleMute() : false;
     $('#muteBtn').textContent = m ? '🔇' : '🔊';
@@ -60,6 +62,7 @@ function nickname() {
 }
 function show(id) {
   ['lobby', 'waiting', 'table'].forEach(s => $('#' + s).hidden = (s !== id));
+  const chat = $('#chat'); if (chat) chat.hidden = !(id === 'table' && App.mode !== 'single'); // 온라인에서만
 }
 
 /* ---------------- 게임 시작 ---------------- */
@@ -91,9 +94,10 @@ function startHost() {
     onGuestJoin: () => {
       App.net.send({ t: 'whoami', name: App.nick }); // 게스트 닉네임 요청
       hostStartGame();
+      chatSystem('상대가 입장했어요! 채팅으로 인사해보세요 👋');
     },
     onData: onHostData,
-    onClose: () => { toast('상대 연결이 끊겼어요'); setTimeout(() => show('lobby'), 1500); },
+    onClose: () => { chatSystem('상대 연결이 끊겼어요'); toast('상대 연결이 끊겼어요'); setTimeout(() => show('lobby'), 1500); },
     onError: e => { toast('연결 오류: ' + (e.type || e.message || e)); show('lobby'); },
   });
 }
@@ -105,9 +109,9 @@ function startJoin(code) {
   App._animSeq = -1; App._animating = false; App._inFlightCapIds = null; App._floorPos = {}; App._monthSlot = {}; App._flyingFloorIds = null;
   toast('접속 중…');
   App.net = window.Net.join(code, {
-    onConnected: () => { App.net.send({ t: 'whoami', name: App.nick }); },
+    onConnected: () => { App.net.send({ t: 'whoami', name: App.nick }); chatSystem('연결됐어요! 채팅 가능합니다 👋'); },
     onData: onGuestData,
-    onClose: () => { toast('상대 연결이 끊겼어요'); setTimeout(() => show('lobby'), 1500); },
+    onClose: () => { chatSystem('상대 연결이 끊겼어요'); toast('상대 연결이 끊겼어요'); setTimeout(() => show('lobby'), 1500); },
     onError: e => { toast('접속 실패: 코드를 확인하세요'); show('lobby'); },
   });
 }
@@ -120,11 +124,13 @@ function onHostData(msg) {
     return;
   }
   if (msg.t === 'rematch') { hostStartGame(); return; }
+  if (msg.t === 'chat') { addChatMessage(msg.name, msg.text, false); return; }
   if (msg.t === 'intent') applyGuestIntent(msg.intent);
 }
 function onGuestData(msg) {
   if (!msg || typeof msg !== 'object') return;
   if (msg.t === 'whoami') { App._hostName = (msg.name || '상대').slice(0, 8); return; }
+  if (msg.t === 'chat') { addChatMessage(msg.name, msg.text, false); return; }
   if (msg.t === 'state') {
     App.busy = false;
     const snap = msg.snap;
@@ -366,7 +372,14 @@ function leaveToLobby() {
   stopTimer();
   $('#modal').hidden = true;
   if (App.net) { App.net.close(); App.net = null; }
+  const cm = $('#chatMsgs'); if (cm) cm.innerHTML = '';
   show('lobby');
+}
+/* 시스템 채팅 메시지 */
+function chatSystem(text) {
+  const box = $('#chatMsgs'); if (!box) return;
+  const el = document.createElement('div'); el.className = 'chat-msg sys'; el.textContent = text;
+  box.appendChild(el); box.scrollTop = box.scrollHeight;
 }
 function hostStartGame() {
   const names = App.state ? [App.state.players[0].name, App.state.players[1].name] : [App.nick, '상대'];
@@ -666,7 +679,7 @@ function animateTurn(s, lp, mine) {
   if (lc && lc.handCaptured) {
     const off = pairOffset(handTgt, 8);  // 맞는 패 위에 비스듬히 겹침
     const el = flyCard(handSrc, off, lp.hand, dur, { persist: true, landRot: 8 });
-    if (el) persistent.push(rectObj(el, off));
+    if (el) { el.style.zIndex = '22'; persistent.push(rectObj(el, off)); } // 먹힌 바닥패 위로
   } else {
     flyCard(handSrc, handTgt, lp.hand, dur); // 못 먹으면 바닥에 깔림(자동 제거)
   }
@@ -683,7 +696,7 @@ function animateTurn(s, lp, mine) {
       if (lc && lc.deckCaptured) {
         const off = pairOffset(deckTgt, -7); // 비스듬히 겹침(반대 방향)
         const el = flyDeck(deckSrc(), off, lp.deck, dur, { persist: true, landRot: -7 });
-        if (el) persistent.push(rectObj(el, off));
+        if (el) { el.style.zIndex = '22'; persistent.push(rectObj(el, off)); } // 먹힌 바닥패 위로
       } else {
         flyDeck(deckSrc(), deckTgt, lp.deck, dur); // 바닥에 떨어져 깔림
       }
@@ -714,6 +727,7 @@ function addFloorOverlays(lc, persistent) {
     const el = overlayCard(card, r);
     el.style.left = r.left + 'px'; el.style.top = r.top + 'px';
     el.style.transform = `rotate(${rot.toFixed ? rot.toFixed(1) : rot}deg)`;
+    el.style.zIndex = '14'; // 낸 패(22)보다 아래
     el.dataset.landRot = rot;
     el.animate([{ transform: `scale(1) rotate(${rot}deg)` }, { transform: `scale(1.08) rotate(${rot}deg)` }, { transform: `scale(1) rotate(${rot}deg)` }],
       { duration: 280, easing: 'ease-out' });
@@ -775,6 +789,28 @@ function showBigCut(text, red) {
   bc.hidden = false;
   clearTimeout(App._cutTo);
   App._cutTo = setTimeout(() => { bc.hidden = true; }, 1150);
+}
+
+/* ---------------- 채팅 ---------------- */
+function sendChat() {
+  if (App.mode === 'single') return;
+  const inp = $('#chatText');
+  const text = (inp.value || '').trim().slice(0, 60);
+  if (!text) return;
+  inp.value = '';
+  addChatMessage(App.nick, text, true);
+  App.net && App.net.send({ t: 'chat', name: App.nick, text });
+}
+function addChatMessage(name, text, mine) {
+  const box = $('#chatMsgs'); if (!box) return;
+  const el = document.createElement('div');
+  el.className = 'chat-msg' + (mine ? ' mine' : '');
+  const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = (name || '상대') + ':';
+  el.appendChild(nm);
+  el.appendChild(document.createTextNode(' ' + text)); // XSS 방지 위해 textNode
+  box.appendChild(el);
+  while (box.children.length > 40) box.removeChild(box.firstChild);
+  box.scrollTop = box.scrollHeight;
 }
 
 const EVENT_MAP = {
