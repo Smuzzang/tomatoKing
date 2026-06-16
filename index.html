@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>토마토 맞고 — Tomato Matgo</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🍅%3C/text%3E%3C/svg%3E" />
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<div id="app">
+
+  <!-- ===== 로비 ===== -->
+  <section id="lobby" class="lobby">
+    <div class="lobby-card">
+      <div class="brand">
+        <div class="brand-mark">🍅</div>
+        <div>
+          <h1>토마토 맞고</h1>
+          <p class="tagline">화투 한 판, 고냐 스톱이냐</p>
+        </div>
+      </div>
+
+      <label class="field">
+        <span>닉네임</span>
+        <input id="nickname" type="text" maxlength="8" placeholder="이름을 입력하세요" />
+      </label>
+
+      <div class="seg">
+        <span class="seg-label">난이도</span>
+        <div class="seg-btns" id="diffSeg">
+          <button data-diff="easy">쉬움</button>
+          <button data-diff="normal" class="on">보통</button>
+          <button data-diff="hard">어려움</button>
+        </div>
+      </div>
+
+      <button id="btnSingle" class="primary big">🤖 혼자 하기 — AI와 1:1</button>
+
+      <div class="divider"><span>온라인 대전</span></div>
+
+      <button id="btnHost" class="ghost">🎮 방 만들기 — 친구 초대</button>
+      <div class="join-row">
+        <input id="joinCode" type="text" inputmode="numeric" maxlength="6" placeholder="초대 코드 6자리" />
+        <button id="btnJoin" class="ghost">입장</button>
+      </div>
+
+      <button id="btnHelp" class="link">규칙 보기 ▾</button>
+      <div id="help" class="help" hidden></div>
+    </div>
+    <p class="credit">Tomato Arcade · 서버 없는 P2P 대전</p>
+  </section>
+
+  <!-- ===== 대기방(호스트) ===== -->
+  <section id="waiting" class="waiting" hidden>
+    <div class="lobby-card center">
+      <h2>방이 열렸어요</h2>
+      <p>아래 코드를 친구에게 알려주세요</p>
+      <div id="roomCode" class="room-code">------</div>
+      <p id="waitMsg" class="muted">상대 접속을 기다리는 중…</p>
+      <button id="btnCancelHost" class="link">취소</button>
+    </div>
+  </section>
+
+  <!-- ===== 게임 테이블 (PC 가로) ===== -->
+  <section id="table" class="table" hidden>
+    <button id="muteBtn" class="mute-btn" title="소리 켜기/끄기">🔊</button>
+
+    <!-- 왼쪽: 먹은 패 -->
+    <div class="col col-left">
+      <div class="cap-zone">
+        <div class="zone-label">상대 먹은 패</div>
+        <div class="captured" id="oppCap"></div>
+      </div>
+      <div class="cap-zone">
+        <div class="zone-label">내가 먹은 패</div>
+        <div class="captured" id="myCap"></div>
+      </div>
+    </div>
+
+    <!-- 가운데: 손패 / 바닥 -->
+    <div class="col col-center">
+      <div class="hand backs" id="oppHand"></div>
+      <div class="center">
+        <div class="deck-wrap">
+          <div class="deck" id="deck"></div>
+          <span class="deck-n" id="deckN">0</span>
+        </div>
+        <div class="floor" id="floor"></div>
+        <div class="turn-tag" id="turnTag"></div>
+        <div class="toast-wrap" id="toasts"></div>
+      </div>
+      <div class="hand" id="myHand"></div>
+    </div>
+
+    <!-- 오른쪽: 점수판 -->
+    <div class="col col-right">
+      <div class="pinfo opp">
+        <div class="pname" id="oppName">상대</div>
+        <div class="pscore" id="oppScore">0점</div>
+        <span class="go-badge" id="oppGo" hidden></span>
+      </div>
+      <div class="statusbar" id="statusbar"></div>
+      <div class="pinfo me">
+        <div class="pname" id="myName">나</div>
+        <div class="pscore" id="myScore">0점</div>
+        <span class="go-badge" id="myGo" hidden></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 큰 금박 컷 (N고 / 피박 등) -->
+  <div id="bigcut" class="bigcut" hidden></div>
+
+  <!-- ===== 카드 리빌(냄/뒤집기) ===== -->
+  <div id="reveal" class="reveal" hidden></div>
+
+  <!-- ===== 화면 플래시 ===== -->
+  <div id="flash" class="flash"></div>
+
+  <!-- ===== 모달 ===== -->
+  <div id="modal" class="modal" hidden>
+    <div class="modal-box" id="modalBox"></div>
+  </div>
+
+</div>
+
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script src="js/sfx.js"></script>
+<script src="js/cards.js"></script>
+<script src="js/rules.js"></script>
+<script src="js/engine.js"></script>
+<script src="js/ai.js"></script>
+<script src="js/net.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
