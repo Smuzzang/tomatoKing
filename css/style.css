@@ -168,7 +168,7 @@ button.link{background:none;border:none;color:#cfe6db;font-size:13px;cursor:poin
 @keyframes fade{to{opacity:0;transform:translateY(-18px) scale(.9);}}
 
 /* ---------- 모달 ---------- */
-.modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:20;padding:20px;}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.66);backdrop-filter:blur(2px);display:flex;align-items:center;justify-content:center;z-index:200;padding:20px;}
 .modal-box{
   width:min(380px,100%);background:#15291f;border:1px solid rgba(255,255,255,.14);
   border-radius:20px;padding:24px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.6);

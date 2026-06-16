@@ -71,7 +71,7 @@ function startSingle() {
     seed, names: [App.nick, 'AI'], aiFlags: [false, true], mode: App.diff,
   });
   App._seq = 0; App._cap = [0, 0]; App._go = [0, 0]; App._freshDeal = true;
-  App._animSeq = -1; App._animating = false; App._inFlightCapIds = null;
+  App._animSeq = -1; App._animating = false; App._inFlightCapIds = null; App._floorPos = {}; App._monthSlot = {}; App._flyingFloorIds = null;
   clearFx();
   show('table'); dealTicks(); afterChange();
 }
@@ -102,7 +102,7 @@ function startJoin(code) {
   App.mode = 'guest'; App.myIdx = 1; App.nick = nickname();
   window.SFX && SFX.init();
   App._seq = 0; App._cap = [0, 0]; App._go = [0, 0]; App._freshDeal = true;
-  App._animSeq = -1; App._animating = false; App._inFlightCapIds = null;
+  App._animSeq = -1; App._animating = false; App._inFlightCapIds = null; App._floorPos = {}; App._monthSlot = {}; App._flyingFloorIds = null;
   toast('접속 중…');
   App.net = window.Net.join(code, {
     onConnected: () => { App.net.send({ t: 'whoami', name: App.nick }); },
@@ -169,11 +169,18 @@ function broadcast(ev) {
 
 /* ---------------- 상태 변경 후 처리 ---------------- */
 function markInflight(s) {
-  // 이번 턴 회수 카드는 쓸어담기 전까지 스트립에서 숨김
   const lc = s.lastCapture;
-  if (lc && lc.seq !== App._animSeq && lc.allIds && lc.allIds.length) {
-    App._inFlightCapIds = new Set(lc.allIds);
+  if (!lc || lc.seq === App._animSeq) return;
+  // 회수 카드: 쓸어담기 전까지 스트립에서 숨김
+  App._inFlightCapIds = (lc.allIds && lc.allIds.length) ? new Set(lc.allIds) : new Set();
+  // 바닥에 새로 깔리는(안 먹힌) 패: 날아가는 카드가 착지하기 전까지 바닥에서 숨김
+  const fset = new Set();
+  const lp = s.lastPlay;
+  if (lp && lp.seq === lc.seq) {
+    if (lp.hand && !lc.handCaptured) fset.add(lp.hand.id);
+    if (lp.deck && !lc.deckCaptured) fset.add(lp.deck.id);
   }
+  App._flyingFloorIds = fset;
 }
 function afterChange() {
   const s = App.state;
@@ -341,6 +348,7 @@ function clearFx() {
   const bc = $('#bigcut'); if (bc) bc.hidden = true;
   const rv = $('#reveal'); if (rv) rv.hidden = true;
   App._animating = false;
+  App._flyingFloorIds = null;
   clearTimeout(App._lockTo);
 }
 
@@ -365,7 +373,7 @@ function hostStartGame() {
   const seed = (Math.random() * 1e9) | 0;
   App.state = window.Engine.newGame({ seed, names, aiFlags: [false, false], mode: 'classic' });
   App._seq = 0; App._cap = [0, 0]; App._go = [0, 0]; App._freshDeal = true;
-  App._animSeq = -1; App._animating = false; App._inFlightCapIds = null;
+  App._animSeq = -1; App._animating = false; App._inFlightCapIds = null; App._floorPos = {}; App._monthSlot = {}; App._flyingFloorIds = null;
   clearFx();
   show('table'); dealTicks(); afterChange();
 }
@@ -419,9 +427,11 @@ function render() {
       if (s.choice.options.includes(c.id)) el.classList.add('choose');
       else el.classList.add('dim');
     }
+    // 날아가는 중인 카드는 착지 전까지 바닥에서 숨김
+    if (App._flyingFloorIds && App._flyingFloorIds.has(c.id)) el.style.opacity = '0';
     fl.appendChild(el);
   });
-  scatterFloor(); // 덱 중앙 회피 + 무작위 흩뿌림
+  scatterFloor(); // 슬롯 배치(같은 월 겹침)
 
   // 더미
   const dk = $('#deck'); dk.innerHTML = '';
@@ -521,35 +531,61 @@ function badge(sel, n) {
   if (n > 0) { el.hidden = false; el.textContent = n + '고'; } else el.hidden = true;
 }
 
-/* 바닥패 배치: 중앙 덱을 중심으로 원(타원)을 그리며 균등 간격으로 정렬 */
+/* 바닥패 배치: 중앙 덱을 중심으로 한 원형 슬롯에 배치.
+ * 같은 월(月) 카드는 한 슬롯에 비스듬히 겹쳐 쌓음. 월별 슬롯은 고정(기존 유지). */
 function scatterFloor() {
   const fl = $('#floor');
   const cards = [...fl.querySelectorAll('.card')];
-  if (!cards.length) return;
+  App._floorPos = {};
+  if (!cards.length) { App._monthSlot = {}; return; }
   const W = fl.clientWidth || 500, H = fl.clientHeight || 280;
   const cw = cards[0].offsetWidth || 64, chh = cards[0].offsetHeight || 105;
   const cx = W / 2, cy = H / 2;
-  const n = cards.length;
 
-  // 반지름: 개수에 따라 넉넉히, 화면 안에 들어오도록 클램프 (가로로 더 넓은 타원)
-  const rx = Math.min(W / 2 - cw / 2 - 8, cw * 2.8 + n * 5);
-  const ry = Math.min(H / 2 - chh / 2 - 8, chh * 1.35 + n * 3);
+  // 후보 슬롯: 바깥 큰 타원 + 안쪽 작은 타원(덱 회피)
+  const rxA = Math.min(W / 2 - cw / 2 - 8, cw * 2.7), ryA = Math.min(H / 2 - chh / 2 - 8, chh * 1.3);
+  const rxB = rxA * 0.6, ryB = ryA * 0.6;
+  const ex = cw * 1.05, ey = chh * 0.9; // 중앙 덱 회피 타원
+  const slots = [];
+  for (let k = 0; k < 14; k++) { const a = -Math.PI / 2 + k * (2 * Math.PI / 14); slots.push({ x: cx + Math.cos(a) * rxA, y: cy + Math.sin(a) * ryA }); }
+  for (let k = 0; k < 8; k++) { const a = -Math.PI / 2 + (k + 0.5) * (2 * Math.PI / 8); const s = { x: cx + Math.cos(a) * rxB, y: cy + Math.sin(a) * ryB }; const dx = s.x - cx, dy = s.y - cy; if ((dx * dx) / (ex * ex) + (dy * dy) / (ey * ey) >= 1) slots.push(s); }
 
-  // id 정렬로 안정적 배치, 위(-90°)에서 시계방향 균등 분포
-  const sorted = cards.slice().sort((a, b) => (a.dataset.cardId > b.dataset.cardId ? 1 : -1));
-  sorted.forEach((el, i) => {
-    const ang = -Math.PI / 2 + (i / n) * Math.PI * 2;
-    const x = cx + Math.cos(ang) * rx;
-    const y = cy + Math.sin(ang) * ry;
-    // 카드별 살짝 회전(자연스럽게)
-    const id = el.dataset.cardId || 'x';
-    let h = 2166136261;
-    for (let k = 0; k < id.length; k++) { h ^= id.charCodeAt(k); h = Math.imul(h, 16777619); }
-    const rot = (((h >>> 0) % 100) / 100 - 0.5) * 12; // ±6°
-    el.style.left = (x - cw / 2) + 'px';
-    el.style.top = (y - chh / 2) + 'px';
-    el.style.transform = `rotate(${rot.toFixed(1)}deg)`;
-    el.style.zIndex = el.classList.contains('choose') ? '25' : String(2 + Math.round((y / H) * 10));
+  // 월별로 그룹화
+  const byMonth = {};
+  cards.forEach(el => { const id = el.dataset.cardId || 'x'; const m = id.slice(1, id.indexOf('_')); (byMonth[m] = byMonth[m] || []).push(el); });
+
+  const ms = App._monthSlot || (App._monthSlot = {});
+  // 쓸어담기 전인 회수 카드의 월 슬롯은 "예약 상태"로 유지 → 더미 패가 그 자리로 안 들어가게
+  const reserved = new Set();
+  if (App._inFlightCapIds) App._inFlightCapIds.forEach(id => { const idx = id.indexOf('_'); if (idx > 0) reserved.add(id.slice(1, idx)); });
+  Object.keys(ms).forEach(m => { if (!byMonth[m] && !reserved.has(m)) delete ms[m]; }); // 사라진(예약 아닌) 월 슬롯 정리
+
+  // 월마다 슬롯 배정(없으면 가장 빈 슬롯)
+  Object.keys(byMonth).forEach(m => {
+    if (!ms[m]) {
+      const occ = Object.values(ms);
+      let best = slots[0], bestScore = -1;
+      slots.forEach(s => { let md = 1e9; occ.forEach(o => { const d = Math.hypot(s.x - o.x, s.y - o.y); if (d < md) md = d; }); if (md > bestScore) { bestScore = md; best = s; } });
+      ms[m] = { x: best.x, y: best.y };
+    }
+  });
+
+  // 같은 월 카드는 한 슬롯에 비스듬히 겹쳐 쌓기 (선택 상황이면 벌려서 클릭 쉽게)
+  Object.keys(byMonth).forEach(m => {
+    const slot = ms[m];
+    const group = byMonth[m].sort((a, b) => (a.dataset.cardId > b.dataset.cardId ? 1 : -1));
+    const choosing = group.some(el => el.classList.contains('choose'));
+    group.forEach((el, i) => {
+      const ox = i * cw * (choosing ? 0.58 : 0.17);     // 선택 땐 옆으로 넓게
+      const oy = -i * chh * (choosing ? 0.04 : 0.09);
+      const rot = choosing ? 0 : i * 6.5 + (i ? 0 : -2); // 겹칠수록 더 비스듬히
+      const x = slot.x + ox, y = slot.y + oy;
+      el.style.left = (x - cw / 2) + 'px';
+      el.style.top = (y - chh / 2) + 'px';
+      el.style.transform = `rotate(${rot.toFixed(1)}deg)`;
+      el.style.zIndex = el.classList.contains('choose') ? '25' : String(3 + i + Math.round((slot.y / H) * 6));
+      App._floorPos[el.dataset.cardId] = { x, y, rot }; // 오버레이 연출용
+    });
   });
 }
 
@@ -628,8 +664,9 @@ function animateTurn(s, lp, mine) {
   App._playSrcRect = null;
   window.SFX && SFX.slap();
   if (lc && lc.handCaptured) {
-    const el = flyCard(handSrc, handTgt, lp.hand, dur, { persist: true }); // 머무름
-    if (el) persistent.push(rectObj(el, handTgt));
+    const off = pairOffset(handTgt, 8);  // 맞는 패 위에 비스듬히 겹침
+    const el = flyCard(handSrc, off, lp.hand, dur, { persist: true, landRot: 8 });
+    if (el) persistent.push(rectObj(el, off));
   } else {
     flyCard(handSrc, handTgt, lp.hand, dur); // 못 먹으면 바닥에 깔림(자동 제거)
   }
@@ -644,8 +681,9 @@ function animateTurn(s, lp, mine) {
       window.SFX && SFX.flip();
       const deckTgt = flyTarget(lp.deck);
       if (lc && lc.deckCaptured) {
-        const el = flyDeck(deckSrc(), deckTgt, lp.deck, dur, { persist: true });
-        if (el) persistent.push(rectObj(el, deckTgt));
+        const off = pairOffset(deckTgt, -7); // 비스듬히 겹침(반대 방향)
+        const el = flyDeck(deckSrc(), off, lp.deck, dur, { persist: true, landRot: -7 });
+        if (el) persistent.push(rectObj(el, off));
       } else {
         flyDeck(deckSrc(), deckTgt, lp.deck, dur); // 바닥에 떨어져 깔림
       }
@@ -657,10 +695,10 @@ function animateTurn(s, lp, mine) {
   const sweepStart = (lp.deck ? deckLand : dur) + hold;
   setTimeout(() => sweepToStrip(persistent, toStrip, sweepDur, lp.by), sweepStart);
 
-  // 안전장치: 일정 시간 뒤 무조건 입력 잠금 해제
+  // 안전장치: 일정 시간 뒤 무조건 입력 잠금 해제 + 숨겨진 바닥패 노출
   const total = sweepStart + sweepDur + persistent.length * 50 + 250;
   clearTimeout(App._lockTo);
-  App._lockTo = setTimeout(() => lockInput(false), total + 300);
+  App._lockTo = setTimeout(() => { lockInput(false); revealAllFloor(); }, total + 300);
 
   return sweepStart; // 이벤트 토스트는 정산 보인 시점에
 }
@@ -668,12 +706,16 @@ function animateTurn(s, lp, mine) {
 /* 바닥에서 먹힌 패들을 제자리에 오버레이로 띄움(쓸어담기 대상) */
 function addFloorOverlays(lc, persistent) {
   const pf = App._prevFloorRects || {};
+  const fpos = App._floorPos || {};
   (lc.floorCards || []).forEach(card => {
     const r = pf[card.id];
     if (!r) return; // 위치 모르면 생략(스트립에서 그냥 나타남)
+    const rot = fpos[card.id] ? fpos[card.id].rot : 0; // 바닥에 놓였던 각도 유지
     const el = overlayCard(card, r);
     el.style.left = r.left + 'px'; el.style.top = r.top + 'px';
-    el.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.08)' }, { transform: 'scale(1)' }],
+    el.style.transform = `rotate(${rot.toFixed ? rot.toFixed(1) : rot}deg)`;
+    el.dataset.landRot = rot;
+    el.animate([{ transform: `scale(1) rotate(${rot}deg)` }, { transform: `scale(1.08) rotate(${rot}deg)` }, { transform: `scale(1) rotate(${rot}deg)` }],
       { duration: 280, easing: 'ease-out' });
     persistent.push({ el, x: r.left, y: r.top, w: r.width, h: r.height });
   });
@@ -689,10 +731,11 @@ function sweepToStrip(persistent, stripSel, sweepDur, byIdx) {
   persistent.forEach((p, i) => {
     const dx = tx - (p.x + p.w / 2), dy = ty - (p.y + p.h / 2);
     const delay = i * 45; last = delay;
+    const lr = parseFloat(p.el.dataset.landRot || 0); // 비스듬히 회전 유지
     const a = p.el.animate([
-      { transform: 'translate(0,0) scale(1)', opacity: 1 },
-      { transform: `translate(${dx * 0.55}px,${dy * 0.55}px) scale(.9)`, opacity: 1, offset: .6 },
-      { transform: `translate(${dx}px,${dy}px) scale(.55)`, opacity: .15 },
+      { transform: `translate(0,0) scale(1) rotate(${lr}deg)`, opacity: 1 },
+      { transform: `translate(${dx * 0.55}px,${dy * 0.55}px) scale(.9) rotate(${lr}deg)`, opacity: 1, offset: .6 },
+      { transform: `translate(${dx}px,${dy}px) scale(.55) rotate(${lr}deg)`, opacity: .15 },
     ], { duration: sweepDur, delay, easing: 'cubic-bezier(.5,0,.7,1)', fill: 'forwards' });
     a.onfinish = () => p.el.remove();
   });
@@ -710,6 +753,12 @@ function finishSweep(byIdx) {
 
 function lockInput(v) { App._animating = v; }
 function rectObj(el, t) { return { el, x: t.left, y: t.top, w: t.width || 64, h: t.height || 105 }; }
+/* 맞는 패 위에 비스듬히 겹치도록 약간 어긋난 착지 지점 */
+function pairOffset(t, rotDeg) {
+  const w = t.width || 64, h = t.height || 105;
+  const dir = rotDeg >= 0 ? 1 : -1;
+  return { left: t.left + dir * w * 0.2, top: t.top - h * 0.16, width: w, height: h };
+}
 function overlayCard(card, sizeRect) {
   const el = document.createElement('div');
   el.className = 'fly-card';
@@ -797,6 +846,7 @@ function flyTarget(card) {
 function flyCard(src, tgt, card, dur, opts) {
   if (!src || !tgt) return null;
   const persist = opts && opts.persist;
+  const lr = (opts && opts.landRot) || 0; // 착지 회전(짝 맞은 패 비스듬히)
   const D = dur || 300;
   const fly = document.createElement('div');
   fly.className = 'fly-card';
@@ -815,21 +865,34 @@ function flyCard(src, tgt, card, dur, opts) {
     // 타겟 바로 위로 높이 들어올림
     { transform: `translate(${dx}px,${dy - raise}px) scale(1.2) rotate(${rot / 2}deg)`, opacity: 1, offset: 0.5, easing: 'ease-in' },
     // 촥! 위에서 아래로 내려쳐 찰싹 (가로로 눌림)
-    { transform: `translate(${dx}px,${dy}px) scale(1.05,0.78) rotate(0deg)`, opacity: 1, offset: 0.72, easing: 'ease-out' },
+    { transform: `translate(${dx}px,${dy}px) scale(1.05,0.78) rotate(${lr * 0.5}deg)`, opacity: 1, offset: 0.72, easing: 'ease-out' },
     // 살짝 반동
-    { transform: `translate(${dx}px,${dy - raise * 0.13}px) scale(0.97,1.07) rotate(0deg)`, offset: 0.85 },
-    { transform: `translate(${dx}px,${dy}px) scale(1) rotate(0deg)`, offset: 1 },
+    { transform: `translate(${dx}px,${dy - raise * 0.13}px) scale(0.97,1.07) rotate(${lr}deg)`, offset: 0.85 },
+    { transform: `translate(${dx}px,${dy}px) scale(1) rotate(${lr}deg)`, offset: 1 },
   ], { duration: D, fill: 'forwards' });
-  anim.onfinish = persist ? () => commitOverlay(fly, anim, tgt) : () => fly.remove();
+  anim.onfinish = persist ? () => commitOverlay(fly, anim, tgt, lr) : () => { revealFloorCard(card.id); fly.remove(); };
   setTimeout(() => impactAt(tgt), Math.round(D * 0.72)); // 착지 충격 효과
   return fly;
 }
 
+/* 날아간 카드가 착지하면 바닥의 실제 카드를 나타냄 */
+function revealFloorCard(id) {
+  if (App._flyingFloorIds) App._flyingFloorIds.delete(id);
+  const real = $('#floor').querySelector(`.card[data-card-id="${id}"]`);
+  if (real) real.style.opacity = '1';
+}
+function revealAllFloor() {
+  if (!App._flyingFloorIds) return;
+  [...App._flyingFloorIds].forEach(id => revealFloorCard(id));
+  App._flyingFloorIds = new Set();
+}
+
 /* persist 오버레이: 착지 후 위치를 inline에 고정(이후 쓸어담기 기준점) */
-function commitOverlay(el, anim, tgt) {
+function commitOverlay(el, anim, tgt, lr) {
   el.style.left = tgt.left + 'px';
   el.style.top = tgt.top + 'px';
-  el.style.transform = 'none';
+  el.style.transform = lr ? `rotate(${lr}deg)` : 'none';
+  el.dataset.landRot = lr || 0;
   try { anim.cancel(); } catch (_) {}
 }
 
@@ -837,6 +900,7 @@ function commitOverlay(el, anim, tgt) {
 function flyDeck(src, tgt, card, dur, opts) {
   if (!src || !tgt) return null;
   const persist = opts && opts.persist;
+  const lr = (opts && opts.landRot) || 0;
   const D = dur || 300;
   const total = D + 300; // 리빌 hold 포함
   const fly = document.createElement('div');
@@ -855,10 +919,10 @@ function flyDeck(src, tgt, card, dur, opts) {
     { transform: `translate(0px,${-lift}px) scale(1.5)`, opacity: 1, offset: 0.2 },           // 위로 떠올라 공개
     { transform: `translate(0px,${-lift}px) scale(1.5)`, opacity: 1, offset: 0.42 },           // 잠깐 멈춰 보여줌
     { transform: `translate(${dx}px,${dy - raise}px) scale(1.22)`, opacity: 1, offset: 0.66, easing: 'ease-in' }, // 타겟 위로
-    { transform: `translate(${dx}px,${dy}px) scale(1.05,0.78)`, opacity: 1, offset: 0.84, easing: 'ease-out' },   // 촥!
-    { transform: `translate(${dx}px,${dy}px) scale(1)`, opacity: 1, offset: 1 },
+    { transform: `translate(${dx}px,${dy}px) scale(1.05,0.78) rotate(${lr * 0.5}deg)`, opacity: 1, offset: 0.84, easing: 'ease-out' },   // 촥!
+    { transform: `translate(${dx}px,${dy}px) scale(1) rotate(${lr}deg)`, opacity: 1, offset: 1 },
   ], { duration: total, fill: 'forwards' });
-  anim.onfinish = persist ? () => commitOverlay(fly, anim, tgt) : () => fly.remove();
+  anim.onfinish = persist ? () => commitOverlay(fly, anim, tgt, lr) : () => { revealFloorCard(card.id); fly.remove(); };
   setTimeout(() => impactAt(tgt), Math.round(total * 0.84));
   return fly;
 }
