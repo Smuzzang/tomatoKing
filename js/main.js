@@ -72,6 +72,7 @@ function startSingle() {
   });
   App._seq = 0; App._cap = [0, 0]; App._go = [0, 0]; App._freshDeal = true;
   App._animSeq = -1; App._animating = false; App._inFlightCapIds = null;
+  clearFx();
   show('table'); dealTicks(); afterChange();
 }
 
@@ -332,13 +333,24 @@ function showResult(result) {
   $('#mHome').onclick = leaveToLobby;
 }
 
+/* 잔여 연출/모달 정리 (새 판 시작 시) */
+function clearFx() {
+  $('#modal').hidden = true;
+  document.querySelectorAll('.fly-card, .impact').forEach(e => e.remove());
+  const tw = $('#toasts'); if (tw) tw.innerHTML = '';
+  const bc = $('#bigcut'); if (bc) bc.hidden = true;
+  const rv = $('#reveal'); if (rv) rv.hidden = true;
+  App._animating = false;
+  clearTimeout(App._lockTo);
+}
+
 /* 다시하기 / 나가기 */
 function rematch() {
   stopTimer();
+  clearFx();                 // 결과 모달·잔여 연출 제거
   if (App.mode === 'single') { startSingle(); return; }
   if (App.mode === 'host') { hostStartGame(); return; }
   // guest → 호스트에 재대국 요청
-  $('#modal').hidden = true;
   App.net && App.net.send({ t: 'rematch' });
   toast('재대국 요청을 보냈어요…');
 }
@@ -354,7 +366,7 @@ function hostStartGame() {
   App.state = window.Engine.newGame({ seed, names, aiFlags: [false, false], mode: 'classic' });
   App._seq = 0; App._cap = [0, 0]; App._go = [0, 0]; App._freshDeal = true;
   App._animSeq = -1; App._animating = false; App._inFlightCapIds = null;
-  $('#modal').hidden = true;
+  clearFx();
   show('table'); dealTicks(); afterChange();
 }
 
