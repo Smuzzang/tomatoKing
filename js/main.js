@@ -395,6 +395,7 @@ function render() {
     }
     fl.appendChild(el);
   });
+  scatterFloor(); // 덱 중앙 회피 + 무작위 흩뿌림
 
   // 더미
   const dk = $('#deck'); dk.innerHTML = '';
@@ -492,6 +493,38 @@ function autoAct() {
 function badge(sel, n) {
   const el = $(sel);
   if (n > 0) { el.hidden = false; el.textContent = n + '고'; } else el.hidden = true;
+}
+
+/* 바닥패 배치: 중앙 덱을 중심으로 원(타원)을 그리며 균등 간격으로 정렬 */
+function scatterFloor() {
+  const fl = $('#floor');
+  const cards = [...fl.querySelectorAll('.card')];
+  if (!cards.length) return;
+  const W = fl.clientWidth || 500, H = fl.clientHeight || 280;
+  const cw = cards[0].offsetWidth || 64, chh = cards[0].offsetHeight || 105;
+  const cx = W / 2, cy = H / 2;
+  const n = cards.length;
+
+  // 반지름: 개수에 따라 넉넉히, 화면 안에 들어오도록 클램프 (가로로 더 넓은 타원)
+  const rx = Math.min(W / 2 - cw / 2 - 8, cw * 2.8 + n * 5);
+  const ry = Math.min(H / 2 - chh / 2 - 8, chh * 1.35 + n * 3);
+
+  // id 정렬로 안정적 배치, 위(-90°)에서 시계방향 균등 분포
+  const sorted = cards.slice().sort((a, b) => (a.dataset.cardId > b.dataset.cardId ? 1 : -1));
+  sorted.forEach((el, i) => {
+    const ang = -Math.PI / 2 + (i / n) * Math.PI * 2;
+    const x = cx + Math.cos(ang) * rx;
+    const y = cy + Math.sin(ang) * ry;
+    // 카드별 살짝 회전(자연스럽게)
+    const id = el.dataset.cardId || 'x';
+    let h = 2166136261;
+    for (let k = 0; k < id.length; k++) { h ^= id.charCodeAt(k); h = Math.imul(h, 16777619); }
+    const rot = (((h >>> 0) % 100) / 100 - 0.5) * 12; // ±6°
+    el.style.left = (x - cw / 2) + 'px';
+    el.style.top = (y - chh / 2) + 'px';
+    el.style.transform = `rotate(${rot.toFixed(1)}deg)`;
+    el.style.zIndex = el.classList.contains('choose') ? '25' : String(2 + Math.round((y / H) * 10));
+  });
 }
 
 function renderCaptured(container, cards) {
@@ -657,14 +690,20 @@ function flyCard(src, tgt, card, dur) {
   document.body.appendChild(fly);
   const dx = tgt.left - src.left, dy = tgt.top - src.top;
   const rot = (Math.random() * 16 - 8).toFixed(1);
+  const raise = (tgt.height || 105) * 0.95; // 내려치기용 들어올림 높이
   const anim = fly.animate([
-    { transform: `translate(0px,0px) scale(1.35) rotate(${rot}deg)`, opacity: 0.7, offset: 0 },
-    { transform: `translate(${dx * 0.82}px,${dy * 0.82}px) scale(1.14) rotate(${(rot / 2)}deg)`, opacity: 1, offset: 0.5 },
-    { transform: `translate(${dx}px,${dy}px) scale(0.9) rotate(0deg)`, opacity: 1, offset: 0.78 }, // 촥! 찰싹
-    { transform: `translate(${dx}px,${dy}px) scale(1) rotate(0deg)`, opacity: 1, offset: 1 },
-  ], { duration: D, easing: 'cubic-bezier(.35,.85,.25,1)', fill: 'forwards' });
+    // 손에서 들림
+    { transform: `translate(0px,0px) scale(1.28) rotate(${rot}deg)`, opacity: 0.55, offset: 0, easing: 'ease-out' },
+    // 타겟 바로 위로 높이 들어올림
+    { transform: `translate(${dx}px,${dy - raise}px) scale(1.2) rotate(${rot / 2}deg)`, opacity: 1, offset: 0.5, easing: 'ease-in' },
+    // 촥! 위에서 아래로 내려쳐 찰싹 (가로로 눌림)
+    { transform: `translate(${dx}px,${dy}px) scale(1.05,0.78) rotate(0deg)`, opacity: 1, offset: 0.72, easing: 'ease-out' },
+    // 살짝 반동
+    { transform: `translate(${dx}px,${dy - raise * 0.13}px) scale(0.97,1.07) rotate(0deg)`, offset: 0.85 },
+    { transform: `translate(${dx}px,${dy}px) scale(1) rotate(0deg)`, offset: 1 },
+  ], { duration: D, fill: 'forwards' });
   anim.onfinish = () => fly.remove();
-  setTimeout(() => impactAt(tgt), Math.round(D * 0.77)); // 착지 충격 효과
+  setTimeout(() => impactAt(tgt), Math.round(D * 0.72)); // 착지 충격 효과
 }
 function impactAt(tgt) {
   const d = document.createElement('div');
