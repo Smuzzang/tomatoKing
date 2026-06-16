@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 <title>토마토 맞고 — Tomato Matgo</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🍅%3C/text%3E%3C/svg%3E" />
-<link rel="stylesheet" href="css/style.css?v=9" />
+<link rel="stylesheet" href="css/style.css?v=10" />
 </head>
 <body>
 <div id="app">
@@ -66,21 +66,10 @@
   <section id="table" class="table" hidden>
     <button id="muteBtn" class="mute-btn" title="소리 켜기/끄기">🔊</button>
 
-    <!-- 왼쪽: 먹은 패 -->
-    <div class="col col-left">
-      <div class="cap-zone">
-        <div class="zone-label">상대 먹은 패</div>
-        <div class="captured" id="oppCap"></div>
-      </div>
-      <div class="cap-zone">
-        <div class="zone-label">내가 먹은 패</div>
-        <div class="captured" id="myCap"></div>
-      </div>
-    </div>
-
-    <!-- 가운데: 손패 / 바닥 -->
+    <!-- 가운데: 상대손패 / 상대먹은패 / 바닥 / 내먹은패 / 내손패 -->
     <div class="col col-center">
       <div class="hand backs" id="oppHand"></div>
+      <div class="captured strip opp" id="oppCap"></div>
       <div class="center">
         <div class="deck-wrap">
           <div class="deck" id="deck"></div>
@@ -90,6 +79,7 @@
         <div class="turn-tag" id="turnTag"></div>
         <div class="timer" id="timer" hidden></div>
       </div>
+      <div class="captured strip me" id="myCap"></div>
       <button id="bombBtn" class="bomb-btn" hidden>💣 폭탄</button>
       <div class="hand" id="myHand"></div>
     </div>
@@ -130,15 +120,16 @@
 </div>
 
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
-<script src="js/sfx.js?v=9"></script>
-<script src="js/cards.js?v=9"></script>
-<script src="js/rules.js?v=9"></script>
-<script src="js/engine.js?v=9"></script>
-<script src="js/ai.js?v=9"></script>
-<script src="js/net.js?v=9"></script>
-<script src="js/main.js?v=9"></script>
+<script src="js/sfx.js?v=10"></script>
+<script src="js/cards.js?v=10"></script>
+<script src="js/rules.js?v=10"></script>
+<script src="js/engine.js?v=10"></script>
+<script src="js/ai.js?v=10"></script>
+<script src="js/net.js?v=10"></script>
+<script src="js/main.js?v=10"></script>
 </body>
 </html>
+
 
 
 

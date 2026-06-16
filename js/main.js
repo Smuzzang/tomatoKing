@@ -198,12 +198,12 @@ function postRender() {
 }
 
 // 내 카드 낙하 연출이 끝난 뒤 고/스톱 모달
-function showGoStopSoon() { setTimeout(showGoStop, 1050); }
+function showGoStopSoon() { setTimeout(showGoStop, 1400); }
 
 function aiDelay(phase) {
   if (phase === 'await_go_stop') return 1100;
   if (phase === 'await_match') return 650;
-  return 1100; // await_play — 사람 낙하 연출이 끝난 뒤 AI가 움직이도록
+  return 1450; // await_play — 사람 낙하+덱 리빌 연출이 끝난 뒤 AI가 움직이도록
 }
 
 function aiStep() {
@@ -562,8 +562,9 @@ function applyJuice(ev) {
   const mine = !!(lp && lp.by === App.myIdx);
   const dur = mine ? 400 : 300;          // 카드 비행 시간
   const deckDelay = mine ? 560 : 240;    // 손패 착지 후 더미 뒤집기까지
-  const capDelay = mine ? (lp && lp.deck ? 1000 : 560) : 260;
-  const evBase = mine ? 900 : 220;
+  // 더미는 떠오르는 리빌(+300ms) 때문에 착지가 늦음
+  const capDelay = mine ? (lp && lp.deck ? 1320 : 560) : (lp && lp.deck ? 900 : 280);
+  const evBase = mine ? 1120 : 720;
 
   // 카드 낙하 연출: 낸 패 → 바닥 매칭 위치로 촥! / 더미 → 매칭 위치로
   const seq = s.playSeq || 0;
@@ -575,7 +576,7 @@ function applyJuice(ev) {
       flyCard(handSrc, flyTarget(lp.hand), lp.hand, dur);
       window.SFX && SFX.play();
       if (lp.deck) {
-        setTimeout(() => { flyCard(deckSrc(), flyTarget(lp.deck), lp.deck, dur); window.SFX && SFX.flip(); }, deckDelay);
+        setTimeout(() => { flyDeck(deckSrc(), flyTarget(lp.deck), lp.deck, dur); window.SFX && SFX.flip(); }, deckDelay);
       }
     }
   }
@@ -704,6 +705,34 @@ function flyCard(src, tgt, card, dur) {
   ], { duration: D, fill: 'forwards' });
   anim.onfinish = () => fly.remove();
   setTimeout(() => impactAt(tgt), Math.round(D * 0.72)); // 착지 충격 효과
+}
+
+/* 더미에서 뽑은 카드: 먼저 위로 떠올라 공개 → 매칭 위치로 내려침 */
+function flyDeck(src, tgt, card, dur) {
+  if (!src || !tgt) return;
+  const D = dur || 300;
+  const total = D + 300; // 리빌 hold 포함
+  const fly = document.createElement('div');
+  fly.className = 'fly-card';
+  fly.innerHTML = window.Hwatu.cardFaceSVG(card);
+  fly.style.left = src.left + 'px';
+  fly.style.top = src.top + 'px';
+  fly.style.width = (tgt.width || 64) + 'px';
+  fly.style.height = (tgt.height || 105) + 'px';
+  document.body.appendChild(fly);
+  const dx = tgt.left - src.left, dy = tgt.top - src.top;
+  const lift = (tgt.height || 105) * 0.75;  // 덱에서 위로 떠오르는 높이
+  const raise = (tgt.height || 105) * 0.85;
+  const anim = fly.animate([
+    { transform: `translate(0px,0px) scale(0.86)`, opacity: 0.4, offset: 0, easing: 'ease-out' },
+    { transform: `translate(0px,${-lift}px) scale(1.5)`, opacity: 1, offset: 0.2 },           // 위로 떠올라 공개
+    { transform: `translate(0px,${-lift}px) scale(1.5)`, opacity: 1, offset: 0.42 },           // 잠깐 멈춰 보여줌
+    { transform: `translate(${dx}px,${dy - raise}px) scale(1.22)`, opacity: 1, offset: 0.66, easing: 'ease-in' }, // 타겟 위로
+    { transform: `translate(${dx}px,${dy}px) scale(1.05,0.78)`, opacity: 1, offset: 0.84, easing: 'ease-out' },   // 촥!
+    { transform: `translate(${dx}px,${dy}px) scale(1)`, opacity: 1, offset: 1 },
+  ], { duration: total, fill: 'forwards' });
+  anim.onfinish = () => fly.remove();
+  setTimeout(() => impactAt(tgt), Math.round(total * 0.84));
 }
 function impactAt(tgt) {
   const d = document.createElement('div');

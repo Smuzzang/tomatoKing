@@ -85,13 +85,15 @@ button.link{background:none;border:none;color:#cfe6db;font-size:13px;cursor:poin
 .col-right{width:16%;min-width:118px;justify-content:space-between;gap:8px;}
 
 /* 먹은 패 구역 */
-.cap-zone{flex:1;background:rgba(0,0,0,.2);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:8px;display:flex;flex-direction:column;min-height:0;overflow:hidden;}
-.zone-label{font-size:11px;color:#bcd9cc;margin-bottom:6px;font-weight:700;}
-.captured{display:flex;flex-direction:column;gap:5px;align-items:flex-start;overflow:hidden;}
-.cap-group{display:flex;align-items:center;}
-.cap-group .card{margin-left:-26px;}
-.cap-group .card:first-child{margin-left:0;}
-.cap-group .cap-label{font-size:10px;color:#2a2a2a;background:var(--gold);font-weight:800;margin-right:4px;padding:1px 6px;border-radius:8px;min-width:24px;text-align:center;}
+/* 먹은 패 띠 — 손패 위(아래)에 가로로 그룹 정렬 */
+.captured.strip{display:flex;flex-direction:row;flex-wrap:wrap;gap:12px;justify-content:center;align-items:center;
+  min-height:58px;padding:2px 8px;}
+.cap-group{display:flex;align-items:center;background:rgba(0,0,0,.22);border:1px solid rgba(255,255,255,.06);
+  border-radius:10px;padding:3px 8px 3px 6px;}
+.cap-group .card{margin-left:-23px;}
+.cap-group .card:first-of-type{margin-left:0;}
+.cap-group .cap-label{font-size:11px;color:#2a2a2a;background:var(--gold);font-weight:900;margin-right:5px;
+  padding:2px 7px;border-radius:9px;min-width:26px;text-align:center;}
 
 /* 손패 */
 .hand{display:flex;justify-content:center;flex-wrap:wrap;min-height:var(--card-h);gap:4px;}
