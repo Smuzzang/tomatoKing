@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 <title>토마토 맞고 — Tomato Matgo</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🍅%3C/text%3E%3C/svg%3E" />
-<link rel="stylesheet" href="css/style.css?v=22" />
+<link rel="stylesheet" href="css/style.css?v=26" />
 </head>
 <body>
 <div id="app">
@@ -114,12 +114,18 @@
 
     <!-- 온라인 채팅 (좌하단, 온라인 대전에서만) -->
     <div id="chat" class="chat" hidden>
-      <div class="chat-head">💬 채팅</div>
-      <div class="chat-msgs" id="chatMsgs"></div>
-      <div class="chat-input">
-        <input id="chatText" type="text" maxlength="60" placeholder="메시지 입력…" autocomplete="off" />
-        <button id="chatSend">전송</button>
+      <div class="chat-head">
+        <span class="chat-title">💬 채팅</span>
+        <button id="chatToggle" class="chat-toggle" type="button" title="접기/펼치기">▾</button>
       </div>
+      <div class="chat-body">
+        <div class="chat-msgs" id="chatMsgs"></div>
+        <div class="chat-input">
+          <input id="chatText" type="text" maxlength="60" placeholder="메시지 입력…" autocomplete="off" />
+          <button id="chatSend">전송</button>
+        </div>
+      </div>
+      <div id="chatResize" class="chat-resize" title="크기 조절"></div>
     </div>
   </section>
 
@@ -140,13 +146,13 @@
 </div>
 
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
-<script src="js/sfx.js?v=22"></script>
-<script src="js/cards.js?v=22"></script>
-<script src="js/rules.js?v=22"></script>
-<script src="js/engine.js?v=22"></script>
-<script src="js/ai.js?v=22"></script>
-<script src="js/net.js?v=22"></script>
-<script src="js/main.js?v=22"></script>
+<script src="js/sfx.js?v=26"></script>
+<script src="js/cards.js?v=26"></script>
+<script src="js/rules.js?v=26"></script>
+<script src="js/engine.js?v=26"></script>
+<script src="js/ai.js?v=26"></script>
+<script src="js/net.js?v=26"></script>
+<script src="js/main.js?v=26"></script>
 </body>
 </html>
 

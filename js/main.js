@@ -54,6 +54,94 @@ function initLobby() {
     $('#muteBtn').textContent = m ? '🔇' : '🔊';
   });
   $('#fpCards').addEventListener('click', onFirstPickClick); // 선 정하기
+
+  // 창 크기 변경 시 바닥패 위치를 현재 화면에 맞춰 재배치
+  window.addEventListener('resize', () => {
+    clearTimeout(App._rzTo);
+    App._rzTo = setTimeout(() => {
+      if (!$('#table').hidden && App.state && !App._animating) scatterFloor();
+      clampChat();
+    }, 100);
+  });
+
+  makeChatDraggable(); // 채팅창 헤더 잡고 자유 이동
+}
+
+/* 채팅창: 헤더 잡고 이동 + 접기/펼치기 + 우하단 크기조절 */
+function makeChatDraggable() {
+  const chat = $('#chat'), head = chat && chat.querySelector('.chat-head');
+  if (!head) return;
+  const title = head.querySelector('.chat-title') || head;
+  title.style.cursor = 'move';
+  head.style.userSelect = 'none';
+  title.title = '드래그해서 옮기기';
+
+  // 위치 고정(드래그 시작): bottom 앵커 → top 앵커로 전환
+  function anchorTopLeft() {
+    const r = chat.getBoundingClientRect();
+    chat.style.left = r.left + 'px';
+    chat.style.top = r.top + 'px';
+    chat.style.bottom = 'auto';
+    chat.style.right = 'auto';
+    return r;
+  }
+
+  // ── 이동(헤더 드래그) ──
+  let drag = null;
+  head.addEventListener('pointerdown', e => {
+    if (e.target.closest('.chat-toggle')) return; // 접기 버튼은 제외
+    const r = anchorTopLeft();
+    drag = { dx: e.clientX - r.left, dy: e.clientY - r.top };
+    try { head.setPointerCapture(e.pointerId); } catch (_) {}
+    e.preventDefault();
+  });
+  head.addEventListener('pointermove', e => {
+    if (!drag) return;
+    const w = chat.offsetWidth, h = chat.offsetHeight;
+    chat.style.left = Math.max(0, Math.min(innerWidth - w, e.clientX - drag.dx)) + 'px';
+    chat.style.top = Math.max(0, Math.min(innerHeight - h, e.clientY - drag.dy)) + 'px';
+  });
+  const endDrag = e => { if (drag) { drag = null; try { head.releasePointerCapture(e.pointerId); } catch (_) {} } };
+  head.addEventListener('pointerup', endDrag);
+  head.addEventListener('pointercancel', endDrag);
+
+  // ── 접기/펼치기 ──
+  const toggle = $('#chatToggle');
+  if (toggle) toggle.addEventListener('click', () => {
+    const collapsed = chat.classList.toggle('collapsed');
+    toggle.textContent = collapsed ? '▸' : '▾';
+    toggle.title = collapsed ? '펼치기' : '접기';
+  });
+
+  // ── 크기 조절(우하단 그립) ──
+  const grip = $('#chatResize');
+  if (grip) {
+    let rz = null;
+    grip.addEventListener('pointerdown', e => {
+      const r = anchorTopLeft();           // 좌상단 기준으로 고정 후 크기 변경
+      rz = { left: r.left, top: r.top };
+      try { grip.setPointerCapture(e.pointerId); } catch (_) {}
+      e.preventDefault(); e.stopPropagation();
+    });
+    grip.addEventListener('pointermove', e => {
+      if (!rz) return;
+      const w = Math.max(150, Math.min(innerWidth * 0.7, e.clientX - rz.left));
+      const h = Math.max(110, Math.min(innerHeight * 0.85, e.clientY - rz.top));
+      chat.style.width = w + 'px';
+      chat.style.height = h + 'px';
+    });
+    const endRz = e => { if (rz) { rz = null; try { grip.releasePointerCapture(e.pointerId); } catch (_) {} } };
+    grip.addEventListener('pointerup', endRz);
+    grip.addEventListener('pointercancel', endRz);
+  }
+}
+/* 리사이즈 시 채팅창이 화면 밖으로 나가지 않게 보정 */
+function clampChat() {
+  const chat = $('#chat'); if (!chat || chat.hidden || chat.style.left === '') return;
+  const w = chat.offsetWidth, h = chat.offsetHeight;
+  const x = Math.max(0, Math.min(innerWidth - w, parseFloat(chat.style.left) || 0));
+  const y = Math.max(0, Math.min(innerHeight - h, parseFloat(chat.style.top) || 0));
+  chat.style.left = x + 'px'; chat.style.top = y + 'px';
 }
 
 function nickname() {
@@ -107,11 +195,14 @@ function dealTicks() {
 
 function startHost() {
   App.mode = 'host'; App.myIdx = 0; App.nick = nickname();
+  App._guestJoined = false;
   window.SFX && SFX.init();
   show('waiting'); $('#roomCode').textContent = '------'; $('#waitMsg').textContent = '방 여는 중…';
   App.net = window.Net.host({
     onReady: code => { $('#roomCode').textContent = code; $('#waitMsg').textContent = '상대 접속을 기다리는 중…'; },
     onGuestJoin: () => {
+      if (App._guestJoined) return;                  // 연결 이벤트 중복 발화 방지
+      App._guestJoined = true;
       App.net.send({ t: 'whoami', name: App.nick }); // 게스트 닉네임 요청
       beginFirstPick();                              // 선(先) 정하기 (호스트 권위)
       chatSystem('상대가 입장했어요! 채팅으로 인사해보세요 👋');
@@ -483,6 +574,7 @@ function onFirstPickClick(e) {
   if (d.picks[App.myIdx] != null) return;     // 이미 고름
   if (d.picks.includes(slot)) return;         // 이미 누가 가져간 슬롯
   if (App.mode === 'guest') {
+    d.myPick = slot;                          // 내 선택 기억(호스트 draw 갱신에 덮이지 않게)
     d.picks[App.myIdx] = slot;                // 낙관적 표시(호스트가 확정/거부)
     renderFirstPick();
     $('#fpStatus').textContent = '상대를 기다리는 중…';
@@ -554,15 +646,26 @@ function broadcastDrawResult() {
 
 /* 게스트: 선 정하기 화면 표시/갱신 */
 function guestShowDraw(msg) {
-  if (!App._draw || App._draw.revealed) App._draw = { n: msg.n, picks: [null, null], revealed: false };
+  if (!App._draw || App._draw.revealed) App._draw = { n: msg.n, picks: [null, null], revealed: false, myPick: null };
   App._draw.n = msg.n;
-  App._draw.picks = msg.picks.slice(); // 권위 picks로 동기화(거부된 낙관적 픽 해제)
+  const me = App.myIdx, opp = 1 - me;
+  const auth = msg.picks.slice();
+  // 내 낙관적 픽 보존: 권위에 아직 내 픽이 반영 안 됐어도 유지.
+  // 단, 호스트가 그 슬롯을 먼저 가져갔으면(충돌) 무효화 → 다시 고르기.
+  if (auth[me] == null && App._draw.myPick != null) {
+    if (auth[opp] === App._draw.myPick) App._draw.myPick = null;
+    else auth[me] = App._draw.myPick;
+  } else if (auth[me] != null) {
+    App._draw.myPick = auth[me]; // 호스트 확정
+  }
+  App._draw.picks = auth;
   show('firstpick');
   renderFirstPick();
   const d = App._draw;
   const st = $('#fpStatus'); st.className = 'fp-status';
-  if (d.picks[App.myIdx] == null) st.textContent = '카드를 고르세요';
-  else if (d.picks[1 - App.myIdx] == null) st.textContent = '상대를 기다리는 중…';
+  if (d.picks[me] == null) st.textContent = '카드를 고르세요';
+  else if (d.picks[opp] == null) st.textContent = '상대를 기다리는 중…';
+  else st.textContent = '공개 중…';
 }
 function guestShowDrawResult(msg) {
   const d = App._draw || (App._draw = { n: FP_N, picks: [null, null] });
@@ -725,8 +828,22 @@ function badge(sel, n) {
   if (n > 0) { el.hidden = false; el.textContent = n + '고'; } else el.hidden = true;
 }
 
+/* 바닥 슬롯 기하 — 현재 화면 크기 기준 (리사이즈마다 재계산) */
+function floorGeom(W, H, cw, chh) {
+  const cx = W / 2, cy = H / 2;
+  const rxA = Math.min(W / 2 - cw / 2 - 8, cw * 2.7), ryA = Math.min(H / 2 - chh / 2 - 8, chh * 1.3);
+  return { cx, cy, rxA, ryA, rxB: rxA * 0.6, ryB: ryA * 0.6 };
+}
+/* 슬롯 정체성('A3'=바깥 14각 중 3, 'B5'=안쪽 8각 중 5) → 현재 기하의 좌표 */
+function slotCoordById(id, g) {
+  const k = parseInt(id.slice(1), 10);
+  if (id[0] === 'A') { const a = -Math.PI / 2 + k * (2 * Math.PI / 14); return { x: g.cx + Math.cos(a) * g.rxA, y: g.cy + Math.sin(a) * g.ryA }; }
+  const a = -Math.PI / 2 + (k + 0.5) * (2 * Math.PI / 8); return { x: g.cx + Math.cos(a) * g.rxB, y: g.cy + Math.sin(a) * g.ryB };
+}
+
 /* 바닥패 배치: 중앙 덱을 중심으로 한 원형 슬롯에 배치.
- * 같은 월(月) 카드는 한 슬롯에 비스듬히 겹쳐 쌓음. 월별 슬롯은 고정(기존 유지). */
+ * 월별 슬롯은 "정체성(id)"으로 고정 저장 → 화면 크기가 바뀌어도 현재 크기에 맞춰 재배치.
+ * 같은 월(月) 카드는 한 슬롯에 비스듬히 겹쳐 쌓음. */
 function scatterFloor() {
   const fl = $('#floor');
   const cards = [...fl.querySelectorAll('.card')];
@@ -734,15 +851,13 @@ function scatterFloor() {
   if (!cards.length) { App._monthSlot = {}; return; }
   const W = fl.clientWidth || 500, H = fl.clientHeight || 280;
   const cw = cards[0].offsetWidth || 64, chh = cards[0].offsetHeight || 105;
-  const cx = W / 2, cy = H / 2;
-
-  // 후보 슬롯: 바깥 큰 타원 + 안쪽 작은 타원(덱 회피)
-  const rxA = Math.min(W / 2 - cw / 2 - 8, cw * 2.7), ryA = Math.min(H / 2 - chh / 2 - 8, chh * 1.3);
-  const rxB = rxA * 0.6, ryB = ryA * 0.6;
+  const g = floorGeom(W, H, cw, chh);
   const ex = cw * 1.05, ey = chh * 0.9; // 중앙 덱 회피 타원
-  const slots = [];
-  for (let k = 0; k < 14; k++) { const a = -Math.PI / 2 + k * (2 * Math.PI / 14); slots.push({ x: cx + Math.cos(a) * rxA, y: cy + Math.sin(a) * ryA }); }
-  for (let k = 0; k < 8; k++) { const a = -Math.PI / 2 + (k + 0.5) * (2 * Math.PI / 8); const s = { x: cx + Math.cos(a) * rxB, y: cy + Math.sin(a) * ryB }; const dx = s.x - cx, dy = s.y - cy; if ((dx * dx) / (ex * ex) + (dy * dy) / (ey * ey) >= 1) slots.push(s); }
+
+  // 후보 슬롯 id: 바깥 14 + (덱 회피 통과한) 안쪽 8
+  const cand = [];
+  for (let k = 0; k < 14; k++) cand.push('A' + k);
+  for (let k = 0; k < 8; k++) { const c = slotCoordById('B' + k, g); const dx = c.x - g.cx, dy = c.y - g.cy; if ((dx * dx) / (ex * ex) + (dy * dy) / (ey * ey) >= 1) cand.push('B' + k); }
 
   // 월별로 그룹화
   const byMonth = {};
@@ -754,19 +869,25 @@ function scatterFloor() {
   if (App._inFlightCapIds) App._inFlightCapIds.forEach(id => { const idx = id.indexOf('_'); if (idx > 0) reserved.add(id.slice(1, idx)); });
   Object.keys(ms).forEach(m => { if (!byMonth[m] && !reserved.has(m)) delete ms[m]; }); // 사라진(예약 아닌) 월 슬롯 정리
 
-  // 월마다 슬롯 배정(없으면 가장 빈 슬롯)
+  // 월마다 슬롯 배정(없으면 가장 빈 슬롯 id) — 사용자가 옮긴(고정) 슬롯이 있으면 그대로 둠
+  const taken = () => Object.values(ms);
   Object.keys(byMonth).forEach(m => {
-    if (!ms[m]) {
-      const occ = Object.values(ms);
-      let best = slots[0], bestScore = -1;
-      slots.forEach(s => { let md = 1e9; occ.forEach(o => { const d = Math.hypot(s.x - o.x, s.y - o.y); if (d < md) md = d; }); if (md > bestScore) { bestScore = md; best = s; } });
-      ms[m] = { x: best.x, y: best.y };
+    if (ms[m] == null) {
+      const occ = taken().map(id => slotCoordById(id, g));
+      let best = cand[0], bestScore = -1;
+      cand.forEach(id => {
+        if (taken().includes(id)) return;
+        const c = slotCoordById(id, g);
+        let md = 1e9; occ.forEach(o => { const d = Math.hypot(c.x - o.x, c.y - o.y); if (d < md) md = d; });
+        if (md > bestScore) { bestScore = md; best = id; }
+      });
+      ms[m] = best;
     }
   });
 
   // 같은 월 카드는 한 슬롯에 비스듬히 겹쳐 쌓기 (선택 상황이면 벌려서 클릭 쉽게)
   Object.keys(byMonth).forEach(m => {
-    const slot = ms[m];
+    const slot = slotCoordById(ms[m], g);
     const group = byMonth[m].sort((a, b) => (a.dataset.cardId > b.dataset.cardId ? 1 : -1));
     const choosing = group.some(el => el.classList.contains('choose'));
     group.forEach((el, i) => {
