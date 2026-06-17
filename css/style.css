@@ -282,6 +282,28 @@ button.link{background:none;border:none;color:#cfe6db;font-size:13px;cursor:poin
 /* 음소거 버튼 */
 .mute-btn{position:absolute;top:8px;right:10px;z-index:8;background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.2);
   color:#fff;width:34px;height:34px;border-radius:50%;font-size:15px;cursor:pointer;}
+/* 나가기 버튼(게임 중) */
+.leave-btn{position:absolute;top:8px;right:52px;z-index:8;background:rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.22);
+  color:#fff;height:34px;padding:0 12px;border-radius:18px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;}
+.leave-btn:hover{background:rgba(226,59,46,.5);}
+.leave-btn.reserved{background:rgba(232,176,74,.85);color:#2a2208;border-color:var(--gold);}
+.leave-actions{display:flex;flex-direction:column;gap:10px;margin-top:14px;}
+.leave-actions button{padding:13px;border-radius:12px;border:none;font-size:15px;font-weight:800;cursor:pointer;}
+.btn-reserve{background:rgba(255,255,255,.14);color:#fff;border:1px solid rgba(232,176,74,.5)!important;}
+.btn-reserve.on{background:var(--gold);color:#2a2208;}
+.btn-leave-now{background:linear-gradient(180deg,#ff5a4d,var(--tomato));color:#fff;}
+.btn-cancel{background:rgba(255,255,255,.12);color:#fff;}
+/* 패배자 드립: 점당 100원이었으면 얼마 잃었나 */
+.money-jab{margin:14px 0 4px;padding:13px 12px;border-radius:14px;text-align:center;line-height:1.5;
+  font-size:14px;color:#ffe9c2;background:linear-gradient(180deg,rgba(226,59,46,.28),rgba(0,0,0,.35));
+  border:1.5px dashed rgba(232,176,74,.7);animation:jabIn .5s cubic-bezier(.2,1.4,.4,1);}
+.money-jab b{color:var(--gold);}
+.money-jab .lost-amount{display:inline-block;font-size:24px;font-weight:900;color:#ff6f5e;
+  text-shadow:0 2px 6px rgba(0,0,0,.5);margin:2px 0;letter-spacing:-.5px;}
+.money-jab .kkk{display:inline-block;font-size:18px;font-weight:900;color:#ffd27a;letter-spacing:3px;
+  animation:kkkWiggle 1.1s ease-in-out infinite;}
+@keyframes jabIn{0%{transform:scale(.6) rotate(-4deg);opacity:0;}70%{transform:scale(1.08) rotate(2deg);}100%{transform:scale(1) rotate(0);opacity:1;}}
+@keyframes kkkWiggle{0%,100%{transform:rotate(-4deg);}50%{transform:rotate(4deg);}}
 
 /* 온라인 채팅 — 좌측 중앙 빈 공간(카드와 겹치지 않게) */
 .chat{position:absolute;left:10px;bottom:10px;width:200px;height:240px;max-height:80vh;z-index:40;

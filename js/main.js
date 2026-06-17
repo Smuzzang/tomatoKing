@@ -53,6 +53,7 @@ function initLobby() {
     const m = window.SFX ? SFX.toggleMute() : false;
     $('#muteBtn').textContent = m ? '🔇' : '🔊';
   });
+  $('#leaveBtn').addEventListener('click', onLeaveClick);
   $('#fpCards').addEventListener('click', onFirstPickClick); // 선 정하기
 
   // 창 크기 변경 시 바닥패 위치를 현재 화면에 맞춰 재배치
@@ -152,6 +153,23 @@ function nickname() {
 function show(id) {
   ['lobby', 'waiting', 'firstpick', 'table'].forEach(s => $('#' + s).hidden = (s !== id));
   const chat = $('#chat'); if (chat) chat.hidden = !(id === 'table' && App.mode !== 'single'); // 온라인에서만
+  const lv = $('#leaveBtn'); if (lv) lv.hidden = (id !== 'table');
+}
+
+/* 게임 중 나가기 — 온라인 진행 중이면 패배 처리 경고 */
+function onLeaveClick() {
+  const s = App.state;
+  const forfeit = App.mode !== 'single' && s && s.phase !== 'ended'; // 온라인 + 게임 진행 중
+  const box = $('#modalBox');
+  box.innerHTML = `<h2>나가기</h2>
+    <p class="muted">${forfeit ? '나가면 이 게임은 <b>패배</b>로 처리돼요.<br>(상대가 이긴 것으로 종료됩니다)' : '게임에서 나갈까요?'}</p>
+    <div class="leave-actions">
+      <button class="btn-leave-now" id="lvNow">${forfeit ? '그래도 나간다 (패배)' : '나가기'}</button>
+      <button class="btn-cancel" id="lvCancel">취소</button>
+    </div>`;
+  $('#modal').hidden = false;
+  $('#lvNow').onclick = () => { $('#modal').hidden = true; leaveToLobby(); };
+  $('#lvCancel').onclick = () => { $('#modal').hidden = true; };
 }
 
 /* 라운드 상태 리셋(연출 카운터 등) */
@@ -195,7 +213,7 @@ function dealTicks() {
 
 function startHost() {
   App.mode = 'host'; App.myIdx = 0; App.nick = nickname();
-  App._guestJoined = false;
+  App._guestJoined = false; App._leaving = false; App._oppLeftHandled = false; App._rematchWant = [false, false];
   window.SFX && SFX.init();
   show('waiting'); $('#roomCode').textContent = '------'; $('#waitMsg').textContent = '방 여는 중…';
   App.net = window.Net.host({
@@ -208,13 +226,37 @@ function startHost() {
       chatSystem('상대가 입장했어요! 채팅으로 인사해보세요 👋');
     },
     onData: onHostData,
-    onClose: () => { chatSystem('상대 연결이 끊겼어요'); toast('상대 연결이 끊겼어요'); setTimeout(() => show('lobby'), 1500); },
+    onClose: handleOppLeft,
     onError: e => { toast('연결 오류: ' + (e.type || e.message || e)); show('lobby'); },
   });
 }
 
+/* 상대가 연결을 끊음(나가기 포함) → 게임 중이면 내 승리 */
+function handleOppLeft() {
+  if (App._leaving || App._oppLeftHandled) return; // 내가 나가는 중 / 이미 처리됨
+  if (!$('#lobby').hidden) return;                 // 이미 로비면 무시
+  App._oppLeftHandled = true;
+  stopTimer();
+  const net = App.net; App.net = null;             // 재진입 방지: 먼저 끊고
+  if (net) { try { net.close(); } catch (_) {} }
+  const s = App.state;
+  if (s && s.phase !== 'ended' && !$('#table').hidden) {
+    if (window.SFX) SFX.win && SFX.win();
+    chatSystem('상대가 게임에서 나갔어요');
+    const box = $('#modalBox');
+    box.innerHTML = `<h2>🎉 승리!</h2>
+      <p class="muted">상대가 게임에서 나갔어요.<br>부전승으로 이겼습니다.</p>
+      <div class="modal-actions"><button class="btn-home" id="mHome">메인으로</button></div>`;
+    $('#modal').hidden = false;
+    $('#mHome').onclick = leaveToLobby;
+  } else {
+    chatSystem('상대 연결이 끊겼어요'); toast('상대 연결이 끊겼어요');
+    setTimeout(() => leaveToLobby(), 1500);
+  }
+}
+
 function startJoin(code) {
-  App.mode = 'guest'; App.myIdx = 1; App.nick = nickname();
+  App.mode = 'guest'; App.myIdx = 1; App.nick = nickname(); App._leaving = false; App._oppLeftHandled = false; App._rematchWant = [false, false];
   window.SFX && SFX.init();
   App._seq = 0; App._cap = [0, 0]; App._go = [0, 0]; App._freshDeal = true;
   App._animSeq = -1; App._animating = false; App._inFlightCapIds = null; App._floorPos = {}; App._monthSlot = {}; App._flyingFloorIds = null;
@@ -222,7 +264,7 @@ function startJoin(code) {
   App.net = window.Net.join(code, {
     onConnected: () => { App.net.send({ t: 'whoami', name: App.nick }); chatSystem('연결됐어요! 채팅 가능합니다 👋'); },
     onData: onGuestData,
-    onClose: () => { chatSystem('상대 연결이 끊겼어요'); toast('상대 연결이 끊겼어요'); setTimeout(() => show('lobby'), 1500); },
+    onClose: handleOppLeft,
     onError: e => { toast('접속 실패: 코드를 확인하세요'); show('lobby'); },
   });
 }
@@ -235,7 +277,10 @@ function onHostData(msg) {
     if (App.state) { App.state.players[1].name = App._guestName; render(); broadcast(); }
     return;
   }
-  if (msg.t === 'rematch') { hostStartGame(nextStarter()); return; }
+  if (msg.t === 'rematchWant') { // 게스트가 다시하기 원함
+    if (!App._rematchWant) App._rematchWant = [false, false];
+    App._rematchWant[1] = true; oppWantsRematch(); checkRematch(); return;
+  }
   if (msg.t === 'chat') { addChatMessage(msg.name, msg.text, false); return; }
   if (msg.t === 'intent' && msg.intent && msg.intent.type === 'pickFirst') { hostReceivePick(msg.intent.slot); return; }
   if (msg.t === 'intent') applyGuestIntent(msg.intent);
@@ -243,6 +288,7 @@ function onHostData(msg) {
 function onGuestData(msg) {
   if (!msg || typeof msg !== 'object') return;
   if (msg.t === 'whoami') { App._hostName = (msg.name || '상대').slice(0, 8); return; }
+  if (msg.t === 'rematchWant') { oppWantsRematch(); return; } // 호스트가 다시하기 원함(피드백)
   if (msg.t === 'chat') { addChatMessage(msg.name, msg.text, false); return; }
   if (msg.t === 'draw') { guestShowDraw(msg); return; }
   if (msg.t === 'drawResult') { guestShowDrawResult(msg); return; }
@@ -510,6 +556,9 @@ function showResult(result) {
   } else {
     const iWon = result.winner === App.myIdx;
     const w = App.state.players[result.winner];
+    // 진 사람에게: 점당 100원이었으면 얼마 잃었나 드립
+    const lostWon = (result.final * 100).toLocaleString();
+    const moneyJab = iWon ? '' : `<div class="money-jab">💸 이게 <b>점당 100원</b>짜리 판이었다면<br>당신은 방금 <b class="lost-amount">${lostWon}원</b>을 잃었습니다.<br><span class="kkk">ㅋㅋㅋ</span></div>`;
     box.innerHTML = `
       <h2>${iWon ? '🎉 승리!' : '😢 패배'}</h2>
       <p class="muted">${w.name} 승리</p>
@@ -518,8 +567,9 @@ function showResult(result) {
       <div class="parts">
         기본 ${result.base}점${result.goCount ? ` · ${result.goCount}고 → ${result.withGo}점` : ''}${result.multiplier > 1 ? ` · ×${result.multiplier}` : ''}
         <br>${scoreParts(w.captured)}
-      </div>${actions}`;
+      </div>${moneyJab}${actions}`;
   }
+  App._rematchWant = [false, false]; // 새 게임 결과 → 다시하기 동의 초기화
   $('#modal').hidden = false;
   $('#mAgain').onclick = rematch;
   $('#mHome').onclick = leaveToLobby;
@@ -537,19 +587,36 @@ function clearFx() {
   clearTimeout(App._lockTo);
 }
 
-/* 다시하기 / 나가기 */
+/* 다시하기 — 싱글은 즉시, 온라인은 양쪽 동의해야 시작 */
 function rematch() {
-  stopTimer();
-  clearFx();                 // 결과 모달·잔여 연출 제거
-  // 2판째부터는 이긴 사람이 선 (선 정하기 생략)
-  if (App.mode === 'single') { dealSingle(nextStarter()); return; }
-  if (App.mode === 'host') { hostStartGame(nextStarter()); return; }
-  // guest → 호스트에 재대국 요청
-  App.net && App.net.send({ t: 'rematch' });
-  toast('재대국 요청을 보냈어요…');
+  if (App.mode === 'single') { stopTimer(); clearFx(); dealSingle(nextStarter()); return; }
+  // 온라인: 내 동의 표시 + 상대에게 알림
+  if (!App._rematchWant) App._rematchWant = [false, false];
+  App._rematchWant[App.myIdx] = true;
+  App.net && App.net.send({ t: 'rematchWant' });
+  const btn = $('#mAgain'); if (btn) { btn.disabled = true; btn.textContent = '상대 동의 대기 중…'; }
+  toast('다시하기 — 상대 동의를 기다려요', 'gold');
+  chatSystem('내가 다시하기를 원해요');
+  if (App.mode === 'host') checkRematch();
+}
+/* 호스트: 양쪽 다 동의했으면 새 게임 시작 */
+function checkRematch() {
+  if (App.mode !== 'host' || !App._rematchWant) return;
+  if (App._rematchWant[0] && App._rematchWant[1]) {
+    App._rematchWant = [false, false];
+    stopTimer(); clearFx();
+    hostStartGame(nextStarter());
+  }
+}
+/* 상대가 다시하기를 원함(피드백) */
+function oppWantsRematch() {
+  chatSystem('상대가 다시하기를 원해요 👀');
+  toast('상대가 다시하기를 원해요', 'gold');
 }
 function leaveToLobby() {
   stopTimer();
+  App._leaving = true;       // 내가 나가는 중 → 내 onClose에선 승리 모달 안 뜨게
+  App._rematchWant = [false, false];
   $('#modal').hidden = true;
   if (App.net) { App.net.close(); App.net = null; }
   const cm = $('#chatMsgs'); if (cm) cm.innerHTML = '';
@@ -820,10 +887,12 @@ function render() {
   renderShakes(s); // 흔든 패 공개
 
   // 차례 표시 / 상태
+  const myDeckPlay = myTurn && s.phase === 'await_play' && me.hand.length === 0 && (me.deckDebt || 0) > 0;
   let tag = '';
   if (s.phase === 'ended') tag = '게임 종료';
   else if (s.phase === 'await_match' && myTurn) tag = '가져갈 패를 고르세요';
   else if (s.phase === 'await_go_stop') tag = (myTurn ? '고/스톱 선택' : '상대 고민 중…');
+  else if (myDeckPlay) tag = '💣 더미패를 치세요';
   else tag = myTurn ? '내 차례' : '상대 차례';
   const tagEl = $('#turnTag'); tagEl.textContent = tag;
   tagEl.classList.toggle('mine', myTurn && s.phase !== 'ended');
@@ -1440,12 +1509,13 @@ function initDev() {
     '쪽': () => devStart(s => { s.players[0].hand = [C('m5_0'), C('m7_0')]; s.floor = [C('m1_0'), C('m2_0')]; s.deck = [C('m5_1'), C('m8_0')]; }, '5월(난초)을 내세요 → 쪽'),
     '따닥(4장)': () => devStart(s => { s.players[0].hand = [C('m5_0'), C('m7_0')]; s.floor = [C('m5_1'), C('m5_2'), C('m1_0')]; s.deck = [C('m5_3'), C('m8_0')]; }, '5월을 내세요 → 따닥(4장)'),
     '자뻑': () => devStart(s => { s.players[0].hand = [C('m5_0'), C('m7_0')]; s.floor = [C('m5_1'), C('m5_2'), C('m5_3')]; s.ppeok = { '5': 0 }; s.deck = [C('m8_0')]; }, '5월을 내세요 → 자뻑(피 2장)'),
-    '2장폭탄': () => devStart(s => { s.players[0].hand = [C('m5_0'), C('m5_1'), C('m7_0')]; s.floor = [C('m5_2'), C('m5_3'), C('m1_0')]; s.deck = [C('m8_0')]; }, '💣 폭탄 버튼을 누르세요 → 2장 폭탄(빚 1)'),
-    '3장폭탄': () => devStart(s => { s.players[0].hand = [C('m5_0'), C('m5_1'), C('m5_2'), C('m7_0')]; s.floor = [C('m5_3'), C('m1_0')]; s.deck = [C('m8_0')]; }, '💣 폭탄 버튼을 누르세요 → 3장 폭탄(빚 2)'),
+    '2장폭탄': () => devStart(s => { s.players[0].hand = [C('m5_0'), C('m5_1')]; s.floor = [C('m5_2'), C('m5_3'), C('m1_0')]; s.deck = [C('m8_0'), C('m8_1'), C('m10_0'), C('m11_0')]; }, '💣 폭탄 → 손패 비면 빚1 → 💣 더미패 치기'),
+    '3장폭탄': () => devStart(s => { s.players[0].hand = [C('m5_0'), C('m5_1'), C('m5_2')]; s.floor = [C('m5_3'), C('m1_0')]; s.deck = [C('m8_0'), C('m8_1'), C('m10_0'), C('m11_0'), C('m12_2')]; }, '💣 폭탄 → 손패 비면 빚2 → 💣 더미패 2번 치기'),
     '흔들기': () => devStart(s => { s.players[0].hand = [C('m5_0'), C('m5_1'), C('m5_2'), C('m7_0')]; s.floor = [C('m1_0'), C('m2_0')]; s.deck = [C('m8_0'), C('m8_1')]; }, '5월(난초)을 내세요 → 흔들기(×2, 이기면 점수 2배)'),
     '국진선택': () => devStart(s => { s.players[0].hand = [C('m9_0'), C('m1_0')]; s.floor = [C('m9_1'), C('m2_0')]; s.deck = [C('m8_0')]; }, '국진(술잔=9월)을 내세요 → 먹는 순간 열끗/쌍피 선택'),
     '마지막판쓸이': () => devStart(s => { s.players[0].hand = [C('m5_0')]; s.floor = [C('m5_1'), C('m8_1')]; s.deck = [C('m8_0')]; }, '마지막 5월을 내세요 → 판쓸이지만 피 안 뺏김(상대 피 변화X 확인)'),
     '폭탄빚(더미패)': () => devStart(s => { s.players[0].hand = []; s.players[0].deckDebt = 2; s.floor = [C('m5_1')]; s.deck = [C('m5_2'), C('m8_0'), C('m8_1')]; }, '💣 더미패 카드를 누르세요 → 덱에서 까서 침'),
+    '패배결과': () => devStart(s => { s.phase = 'ended'; s.winner = 1; s.result = { winner: 1, base: 7, withGo: 8, multiplier: 2, final: 16, goCount: 1, goBak: false, flags: ['1고', '피박'] }; s.players[1].name = 'AI'; s.players[1].captured = [C('m1_0'), C('m3_0'), C('m8_0'), C('m1_2')]; }, '패배 결과 팝업(점당 100원 드립) 확인'),
   };
 
   const bar = document.createElement('div');
