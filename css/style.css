@@ -99,6 +99,44 @@ button.link{background:none;border:none;color:#cfe6db;font-size:13px;cursor:poin
 .lobby button.link:hover{color:#c5d0ca;}
 .lobby .help{background:#171d1a;color:#d6ded9;}
 .lobby .credit{color:rgba(255,255,255,.28);}
+/* 로비 2단 레이아웃: 좌 메인 / 우 방 리스트 */
+.lobby-wrap{display:flex;gap:16px;align-items:stretch;justify-content:center;width:min(760px,100%);}
+.lobby-wrap .lobby-card{flex:0 0 380px;align-self:flex-start;}
+.rooms-panel{flex:1;min-width:240px;display:flex;flex-direction:column;gap:8px;
+  background:#222a26;border:1px solid rgba(255,255,255,.07);border-radius:16px;padding:18px 16px;box-shadow:0 12px 40px rgba(0,0,0,.4);}
+@media (max-width:740px){ .lobby-wrap{flex-direction:column;align-items:center;width:min(420px,100%);} .lobby-wrap .lobby-card{flex:none;width:100%;} .rooms-panel{width:100%;} }
+/* 방 리스트 */
+.pr-head{font-size:13px;font-weight:800;color:#c5d0ca;}
+.pr-head span{color:var(--tomato);}
+.pr-list{display:flex;flex-direction:column;gap:7px;flex:1;overflow-y:auto;max-height:62vh;min-height:120px;}
+.pr-row{display:flex;align-items:center;justify-content:space-between;gap:8px;
+  background:#171d1a;border:1px solid rgba(255,255,255,.08);border-radius:11px;padding:9px 10px 9px 12px;}
+.pr-row.busy{opacity:.7;}
+.pr-info{min-width:0;display:flex;flex-direction:column;gap:3px;}
+.pr-title{font-size:14.5px;color:#fff;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.pr-sub{font-size:11px;display:flex;align-items:center;gap:6px;}
+.pr-host{color:#8a9a92;}
+.pr-badge{font-size:10px;font-weight:800;padding:1px 7px;border-radius:20px;}
+.pr-badge.open{background:rgba(95,200,140,.2);color:#7ee0a8;}
+.pr-badge.full{background:rgba(232,176,74,.2);color:var(--gold);}
+.pr-badge.playing{background:rgba(226,59,46,.2);color:#ff8a7d;}
+.pr-join{flex:none;padding:8px 16px;border:none;border-radius:8px;background:var(--tomato);color:#fff;
+  font-size:13px;font-weight:800;cursor:pointer;}
+.pr-join:hover{background:#cf3328;}
+.pr-join.off{background:rgba(255,255,255,.08);color:#6a7972;cursor:default;}
+.pr-empty{font-size:12.5px;color:#6a7972;text-align:center;padding:24px 8px;line-height:1.6;}
+/* 대기방(방 정보 + 준비/시작) */
+.room-card{gap:16px;}
+.room-card h2{margin:0;font-size:22px;}
+.room-players{display:flex;align-items:center;justify-content:center;gap:14px;}
+.room-players .rp{display:flex;flex-direction:column;align-items:center;gap:5px;
+  background:#171d1a;border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:12px 16px;min-width:96px;}
+.rp-name{font-size:15px;font-weight:800;color:#fff;}
+.rp-role{font-size:10px;font-weight:800;padding:2px 9px;border-radius:20px;background:rgba(255,255,255,.1);color:#9fb3a9;min-height:17px;}
+.rp-role.host{background:var(--tomato);color:#fff;}
+.rp-vs{font-size:13px;font-weight:900;color:#6a7972;}
+#btnReady,#btnStart{margin-top:2px;}
+#btnStart:disabled,#btnReady:disabled{opacity:.45;cursor:default;}
 
 /* ---------- 선(先) 정하기 ---------- */
 .firstpick{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:18px;}

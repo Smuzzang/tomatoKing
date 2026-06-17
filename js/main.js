@@ -35,13 +35,10 @@ function initLobby() {
     if (!h.innerHTML) h.innerHTML = HELP_HTML;
   });
   $('#btnSingle').addEventListener('click', startSingle);
-  $('#btnHost').addEventListener('click', startHost);
-  $('#btnJoin').addEventListener('click', () => {
-    const c = $('#joinCode').value.replace(/\D/g, '');
-    if (c.length !== 6) return toast('코드 6자리를 입력하세요');
-    startJoin(c);
-  });
-  $('#btnCancelHost').addEventListener('click', () => { App.net && App.net.close(); show('lobby'); });
+  $('#btnHost').addEventListener('click', showCreateRoom);
+  $('#btnReady').addEventListener('click', onReadyClick);
+  $('#btnStart').addEventListener('click', onStartClick);
+  $('#btnCancelHost').addEventListener('click', leaveToLobby);
 
   // 테이블 클릭 위임
   $('#myHand').addEventListener('click', onHandClick);
@@ -55,6 +52,7 @@ function initLobby() {
   });
   $('#leaveBtn').addEventListener('click', onLeaveClick);
   $('#fpCards').addEventListener('click', onFirstPickClick); // 선 정하기
+  subscribeRooms(); // 공개 방 목록(Firebase)
 
   // 창 크기 변경 시 바닥패 위치를 현재 화면에 맞춰 재배치
   window.addEventListener('resize', () => {
@@ -156,6 +154,45 @@ function show(id) {
   const lv = $('#leaveBtn'); if (lv) lv.hidden = (id !== 'table');
 }
 
+/* ---------------- 공개 방 목록(Firebase) ---------------- */
+function subscribeRooms() {
+  if (!window.Rooms) { renderRooms(null); return; }
+  Rooms.subscribe(renderRooms);
+}
+function renderRooms(list) {
+  const wrap = $('#prList'), cnt = $('#prCount'); if (!wrap) return;
+  if (list === null) { wrap.innerHTML = '<div class="pr-empty">공개 방 목록을 불러올 수 없어요</div>'; if (cnt) cnt.textContent = ''; return; }
+  const rooms = list.filter(r => r.code !== App._myRoomCode); // 내 방은 숨김
+  if (cnt) cnt.textContent = rooms.length ? '(' + rooms.length + ')' : '';
+  if (!rooms.length) { wrap.innerHTML = '<div class="pr-empty">열린 방이 없어요.<br>방을 만들어보세요!</div>'; return; }
+  wrap.innerHTML = '';
+  rooms.forEach(r => {
+    const players = r.players || 1;
+    const playing = r.status === 'playing';
+    const full = !playing && (players >= 2 || r.status === 'full');
+    const joinable = !playing && !full; // 기다리는 중(1/2)만 입장 가능
+
+    const row = document.createElement('div'); row.className = 'pr-row' + (joinable ? '' : ' busy');
+    const info = document.createElement('div'); info.className = 'pr-info';
+    const title = document.createElement('div'); title.className = 'pr-title'; title.textContent = r.title || (r.host + '님의 방');
+    const sub = document.createElement('div'); sub.className = 'pr-sub';
+    let badge = '';
+    if (playing) badge = '<span class="pr-badge playing">게임 중</span>';
+    else if (full) badge = '<span class="pr-badge full">가득 참 2/2</span>';
+    else badge = '<span class="pr-badge open">기다리는 중 1/2</span>';
+    sub.innerHTML = `<span class="pr-host">${escapeHtml(r.host)}</span> ${badge}`;
+    info.appendChild(title); info.appendChild(sub);
+    row.appendChild(info);
+
+    const btn = document.createElement('button'); btn.className = 'pr-join';
+    if (joinable) { btn.textContent = '입장'; btn.onclick = () => startJoin(r.code); }
+    else { btn.textContent = playing ? '게임 중' : '2/2'; btn.disabled = true; btn.classList.add('off'); }
+    row.appendChild(btn);
+    wrap.appendChild(row);
+  });
+}
+function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
 /* 게임 중 나가기 — 온라인 진행 중이면 패배 처리 경고 */
 function onLeaveClick() {
   const s = App.state;
@@ -211,62 +248,131 @@ function dealTicks() {
   for (let i = 0; i < 6; i++) setTimeout(() => SFX.deal(), i * 70);
 }
 
-function startHost() {
+/* 방 만들기 — 제목 입력 팝업 */
+function showCreateRoom() {
+  const nick = nickname();
+  const box = $('#modalBox');
+  box.innerHTML = `<h2>방 만들기</h2>
+    <label class="field" style="text-align:left"><span>방 제목</span>
+      <input id="roomTitleInput" type="text" maxlength="16" placeholder="${nick}님의 방"></label>
+    <div class="modal-actions">
+      <button class="btn-go" id="crGo">만들기</button>
+      <button class="btn-stop" id="crCancel">취소</button>
+    </div>`;
+  $('#modal').hidden = false;
+  const inp = $('#roomTitleInput'); setTimeout(() => inp && inp.focus(), 60);
+  const go = () => { const t = ((inp.value || '').trim() || (nick + '님의 방')).slice(0, 16); $('#modal').hidden = true; startHost(t); };
+  $('#crGo').onclick = go;
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
+  $('#crCancel').onclick = () => { $('#modal').hidden = true; };
+}
+
+function startHost(title) {
   App.mode = 'host'; App.myIdx = 0; App.nick = nickname();
   App._guestJoined = false; App._leaving = false; App._oppLeftHandled = false; App._rematchWant = [false, false];
+  App._myRoomCode = null; App._roomTitle = title || (App.nick + '님의 방');
+  App._guestName = null; App._guestReady = false; App.state = null;
   window.SFX && SFX.init();
-  show('waiting'); $('#roomCode').textContent = '------'; $('#waitMsg').textContent = '방 여는 중…';
+  showRoomWait();
   App.net = window.Net.host({
-    onReady: code => { $('#roomCode').textContent = code; $('#waitMsg').textContent = '상대 접속을 기다리는 중…'; },
+    onReady: code => { App._myRoomCode = code; window.Rooms && Rooms.register(code, App._roomTitle, App.nick); },
     onGuestJoin: () => {
-      if (App._guestJoined) return;                  // 연결 이벤트 중복 발화 방지
-      App._guestJoined = true;
-      App.net.send({ t: 'whoami', name: App.nick }); // 게스트 닉네임 요청
-      beginFirstPick();                              // 선(先) 정하기 (호스트 권위)
-      chatSystem('상대가 입장했어요! 채팅으로 인사해보세요 👋');
+      if (App._guestJoined) return;
+      App._guestJoined = true; App._guestReady = false;
+      App.net.send({ t: 'whoami', name: App.nick });
+      App.net.send({ t: 'roominfo', title: App._roomTitle, host: App.nick });
+      window.Rooms && Rooms.update(App._myRoomCode, { status: 'full', players: 2 });
+      chatSystem('상대가 입장했어요!');
+      showRoomWait();
     },
     onData: onHostData,
     onClose: handleOppLeft,
-    onError: e => { toast('연결 오류: ' + (e.type || e.message || e)); show('lobby'); },
+    onError: e => { toast('연결 오류'); leaveToLobby(); },
   });
-}
-
-/* 상대가 연결을 끊음(나가기 포함) → 게임 중이면 내 승리 */
-function handleOppLeft() {
-  if (App._leaving || App._oppLeftHandled) return; // 내가 나가는 중 / 이미 처리됨
-  if (!$('#lobby').hidden) return;                 // 이미 로비면 무시
-  App._oppLeftHandled = true;
-  stopTimer();
-  const net = App.net; App.net = null;             // 재진입 방지: 먼저 끊고
-  if (net) { try { net.close(); } catch (_) {} }
-  const s = App.state;
-  if (s && s.phase !== 'ended' && !$('#table').hidden) {
-    if (window.SFX) SFX.win && SFX.win();
-    chatSystem('상대가 게임에서 나갔어요');
-    const box = $('#modalBox');
-    box.innerHTML = `<h2>🎉 승리!</h2>
-      <p class="muted">상대가 게임에서 나갔어요.<br>부전승으로 이겼습니다.</p>
-      <div class="modal-actions"><button class="btn-home" id="mHome">메인으로</button></div>`;
-    $('#modal').hidden = false;
-    $('#mHome').onclick = leaveToLobby;
-  } else {
-    chatSystem('상대 연결이 끊겼어요'); toast('상대 연결이 끊겼어요');
-    setTimeout(() => leaveToLobby(), 1500);
-  }
 }
 
 function startJoin(code) {
-  App.mode = 'guest'; App.myIdx = 1; App.nick = nickname(); App._leaving = false; App._oppLeftHandled = false; App._rematchWant = [false, false];
+  App.mode = 'guest'; App.myIdx = 1; App.nick = nickname();
+  App._leaving = false; App._oppLeftHandled = false; App._rematchWant = [false, false];
+  App._iReady = false; App._roomTitle = '대전 방'; App._hostName = null; App._myRoomCode = null; App.state = null;
   window.SFX && SFX.init();
-  App._seq = 0; App._cap = [0, 0]; App._go = [0, 0]; App._freshDeal = true;
-  App._animSeq = -1; App._animating = false; App._inFlightCapIds = null; App._floorPos = {}; App._monthSlot = {}; App._flyingFloorIds = null;
+  resetRoundState();
   toast('접속 중…');
   App.net = window.Net.join(code, {
-    onConnected: () => { App.net.send({ t: 'whoami', name: App.nick }); chatSystem('연결됐어요! 채팅 가능합니다 👋'); },
+    onConnected: () => { App.net.send({ t: 'whoami', name: App.nick }); showRoomWait(); chatSystem('연결됐어요!'); },
     onData: onGuestData,
     onClose: handleOppLeft,
-    onError: e => { toast('접속 실패: 코드를 확인하세요'); show('lobby'); },
+    onError: e => { toast('접속 실패'); show('lobby'); },
   });
+}
+
+/* 방 대기 화면 (호스트=시작 / 게스트=준비) */
+function showRoomWait() {
+  show('waiting');
+  $('#roomTitleView').textContent = App._roomTitle || '대전 방';
+  const isHost = App.mode === 'host';
+  $('#rpHostName').textContent = isHost ? App.nick : (App._hostName || '방장');
+  $('#rpGuestName').textContent = (isHost ? App._guestName : App.nick) || '대기 중…';
+  const readyBtn = $('#btnReady'), startBtn = $('#btnStart'), msg = $('#waitMsg'), grole = $('#rpGuestRole');
+  if (isHost) {
+    readyBtn.hidden = true; startBtn.hidden = false;
+    const hasGuest = !!App._guestName, canStart = hasGuest && App._guestReady;
+    startBtn.disabled = !canStart;
+    startBtn.textContent = canStart ? '시작' : (hasGuest ? '상대 준비 대기' : '상대 입장 대기');
+    msg.textContent = !hasGuest ? '상대 입장을 기다리는 중…' : (App._guestReady ? '상대 준비 완료! 시작하세요' : '상대가 준비 중…');
+    grole.textContent = hasGuest ? (App._guestReady ? '준비완료' : '입장') : '';
+  } else {
+    startBtn.hidden = true; readyBtn.hidden = false;
+    readyBtn.disabled = !!App._iReady;
+    readyBtn.textContent = App._iReady ? '준비완료 ✓' : '준비';
+    msg.textContent = App._iReady ? '방장이 시작하길 기다려요…' : '준비 버튼을 눌러주세요';
+    grole.textContent = App._iReady ? '준비완료' : '';
+  }
+}
+
+function onReadyClick() { // 게스트 준비
+  if (App.mode !== 'guest' || App._iReady) return;
+  App._iReady = true;
+  App.net && App.net.send({ t: 'ready' });
+  showRoomWait();
+}
+function onStartClick() { // 호스트 시작
+  if (App.mode !== 'host') return;
+  if (!App._guestName || !App._guestReady) { toast('상대가 준비해야 시작할 수 있어요'); return; }
+  window.Rooms && Rooms.update(App._myRoomCode, { status: 'playing' });
+  beginFirstPick();
+}
+
+/* 상대가 연결을 끊음(나가기 포함) */
+function handleOppLeft() {
+  if (App._leaving) return;
+  if (App.mode === 'host') {
+    // 게스트 이탈 → 방 유지(새 상대 대기). 게임 중이었으면 부전승
+    const wasInGame = App.state && App.state.phase !== 'ended' && !$('#table').hidden;
+    if (wasInGame) { window.SFX && SFX.win && SFX.win(); toast('상대가 나가서 승리! 🎉', 'gold'); }
+    App._guestJoined = false; App._guestName = null; App._guestReady = false; App.state = null;
+    App._rematchWant = [false, false];
+    stopTimer(); $('#modal').hidden = true; clearFx();
+    window.Rooms && Rooms.update(App._myRoomCode, { status: 'waiting', players: 1, guest: null });
+    chatSystem('상대가 나갔어요 — 새 상대를 기다려요');
+    showRoomWait();
+    return;
+  }
+  // 게스트: 방장이 끊음/나감
+  if (App._oppLeftHandled) return;
+  App._oppLeftHandled = true;
+  stopTimer();
+  const net = App.net; App.net = null; if (net) { try { net.close(); } catch (_) {} }
+  const wasInGame = App.state && App.state.phase !== 'ended' && !$('#table').hidden;
+  if (wasInGame) {
+    window.SFX && SFX.win && SFX.win();
+    const box = $('#modalBox');
+    box.innerHTML = `<h2>🎉 승리!</h2><p class="muted">상대가 게임에서 나갔어요.</p>
+      <div class="modal-actions"><button class="btn-home" id="mHome">메인으로</button></div>`;
+    $('#modal').hidden = false; $('#mHome').onclick = leaveToLobby;
+  } else {
+    toast('방장이 방을 닫았어요'); setTimeout(() => leaveToLobby(), 1200);
+  }
 }
 
 /* ---------------- 네트워크 수신 ---------------- */
@@ -274,9 +380,12 @@ function onHostData(msg) {
   if (!msg || typeof msg !== 'object') return;
   if (msg.t === 'whoami') {
     App._guestName = (msg.name || '상대').slice(0, 8);
+    window.Rooms && Rooms.update(App._myRoomCode, { guest: App._guestName });
     if (App.state) { App.state.players[1].name = App._guestName; render(); broadcast(); }
+    else if (!$('#waiting').hidden) showRoomWait();
     return;
   }
+  if (msg.t === 'ready') { App._guestReady = true; chatSystem('상대가 준비했어요'); showRoomWait(); return; }
   if (msg.t === 'rematchWant') { // 게스트가 다시하기 원함
     if (!App._rematchWant) App._rematchWant = [false, false];
     App._rematchWant[1] = true; oppWantsRematch(); checkRematch(); return;
@@ -287,7 +396,8 @@ function onHostData(msg) {
 }
 function onGuestData(msg) {
   if (!msg || typeof msg !== 'object') return;
-  if (msg.t === 'whoami') { App._hostName = (msg.name || '상대').slice(0, 8); return; }
+  if (msg.t === 'whoami') { App._hostName = (msg.name || '상대').slice(0, 8); if (!$('#waiting').hidden) showRoomWait(); return; }
+  if (msg.t === 'roominfo') { App._roomTitle = msg.title || '대전 방'; if (msg.host) App._hostName = msg.host; if (!$('#waiting').hidden) showRoomWait(); return; }
   if (msg.t === 'rematchWant') { oppWantsRematch(); return; } // 호스트가 다시하기 원함(피드백)
   if (msg.t === 'chat') { addChatMessage(msg.name, msg.text, false); return; }
   if (msg.t === 'draw') { guestShowDraw(msg); return; }
@@ -617,6 +727,7 @@ function leaveToLobby() {
   stopTimer();
   App._leaving = true;       // 내가 나가는 중 → 내 onClose에선 승리 모달 안 뜨게
   App._rematchWant = [false, false];
+  window.Rooms && Rooms.unregister(App._myRoomCode); App._myRoomCode = null; // 혹시 남은 방 제거
   $('#modal').hidden = true;
   if (App.net) { App.net.close(); App.net = null; }
   const cm = $('#chatMsgs'); if (cm) cm.innerHTML = '';
