@@ -53,6 +53,7 @@ function initLobby() {
     const m = window.SFX ? SFX.toggleMute() : false;
     $('#muteBtn').textContent = m ? '🔇' : '🔊';
   });
+  $('#fpCards').addEventListener('click', onFirstPickClick); // 선 정하기
 }
 
 function nickname() {
@@ -61,22 +62,41 @@ function nickname() {
   return n.slice(0, 8);
 }
 function show(id) {
-  ['lobby', 'waiting', 'table'].forEach(s => $('#' + s).hidden = (s !== id));
+  ['lobby', 'waiting', 'firstpick', 'table'].forEach(s => $('#' + s).hidden = (s !== id));
   const chat = $('#chat'); if (chat) chat.hidden = !(id === 'table' && App.mode !== 'single'); // 온라인에서만
+}
+
+/* 라운드 상태 리셋(연출 카운터 등) */
+function resetRoundState() {
+  App._seq = 0; App._cap = [0, 0]; App._go = [0, 0]; App._freshDeal = true;
+  App._animSeq = -1; App._animating = false; App._inFlightCapIds = null;
+  App._floorPos = {}; App._monthSlot = {}; App._flyingFloorIds = null;
 }
 
 /* ---------------- 게임 시작 ---------------- */
 function startSingle() {
   App.mode = 'single'; App.myIdx = 0; App.nick = nickname();
   window.SFX && SFX.init();
+  beginFirstPick();            // 첫 게임은 선(先) 정하기부터
+}
+
+/* 실제 딜링 (starter = 선) */
+function dealSingle(starter) {
   const seed = (Math.random() * 1e9) | 0;
   App.state = window.Engine.newGame({
-    seed, names: [App.nick, 'AI'], aiFlags: [false, true], mode: App.diff,
+    seed, names: [App.nick, 'AI'], aiFlags: [false, true], mode: App.diff, starter: starter || 0,
   });
-  App._seq = 0; App._cap = [0, 0]; App._go = [0, 0]; App._freshDeal = true;
-  App._animSeq = -1; App._animating = false; App._inFlightCapIds = null; App._floorPos = {}; App._monthSlot = {}; App._flyingFloorIds = null;
+  resetRoundState();
   clearFx();
   show('table'); dealTicks(); afterChange();
+}
+
+/* 다음 판 선(先): 이긴 사람. 나가리면 이전 선 유지 */
+function nextStarter() {
+  const s = App.state;
+  if (!s || !s.result) return 0;
+  if (s.result.draw) return (s.starter != null ? s.starter : 0);
+  return s.result.winner;
 }
 
 /* 딜링 효과음 */
@@ -93,7 +113,7 @@ function startHost() {
     onReady: code => { $('#roomCode').textContent = code; $('#waitMsg').textContent = '상대 접속을 기다리는 중…'; },
     onGuestJoin: () => {
       App.net.send({ t: 'whoami', name: App.nick }); // 게스트 닉네임 요청
-      hostStartGame();
+      beginFirstPick();                              // 선(先) 정하기 (호스트 권위)
       chatSystem('상대가 입장했어요! 채팅으로 인사해보세요 👋');
     },
     onData: onHostData,
@@ -120,17 +140,21 @@ function startJoin(code) {
 function onHostData(msg) {
   if (!msg || typeof msg !== 'object') return;
   if (msg.t === 'whoami') {
-    if (App.state) { App.state.players[1].name = (msg.name || '상대').slice(0, 8); render(); broadcast(); }
+    App._guestName = (msg.name || '상대').slice(0, 8);
+    if (App.state) { App.state.players[1].name = App._guestName; render(); broadcast(); }
     return;
   }
-  if (msg.t === 'rematch') { hostStartGame(); return; }
+  if (msg.t === 'rematch') { hostStartGame(nextStarter()); return; }
   if (msg.t === 'chat') { addChatMessage(msg.name, msg.text, false); return; }
+  if (msg.t === 'intent' && msg.intent && msg.intent.type === 'pickFirst') { hostReceivePick(msg.intent.slot); return; }
   if (msg.t === 'intent') applyGuestIntent(msg.intent);
 }
 function onGuestData(msg) {
   if (!msg || typeof msg !== 'object') return;
   if (msg.t === 'whoami') { App._hostName = (msg.name || '상대').slice(0, 8); return; }
   if (msg.t === 'chat') { addChatMessage(msg.name, msg.text, false); return; }
+  if (msg.t === 'draw') { guestShowDraw(msg); return; }
+  if (msg.t === 'drawResult') { guestShowDrawResult(msg); return; }
   if (msg.t === 'state') {
     App.busy = false;
     const snap = msg.snap;
@@ -362,8 +386,9 @@ function clearFx() {
 function rematch() {
   stopTimer();
   clearFx();                 // 결과 모달·잔여 연출 제거
-  if (App.mode === 'single') { startSingle(); return; }
-  if (App.mode === 'host') { hostStartGame(); return; }
+  // 2판째부터는 이긴 사람이 선 (선 정하기 생략)
+  if (App.mode === 'single') { dealSingle(nextStarter()); return; }
+  if (App.mode === 'host') { hostStartGame(nextStarter()); return; }
   // guest → 호스트에 재대국 요청
   App.net && App.net.send({ t: 'rematch' });
   toast('재대국 요청을 보냈어요…');
@@ -381,14 +406,170 @@ function chatSystem(text) {
   const el = document.createElement('div'); el.className = 'chat-msg sys'; el.textContent = text;
   box.appendChild(el); box.scrollTop = box.scrollHeight;
 }
-function hostStartGame() {
-  const names = App.state ? [App.state.players[0].name, App.state.players[1].name] : [App.nick, '상대'];
+function hostStartGame(starter) {
+  const names = App.state ? [App.state.players[0].name, App.state.players[1].name]
+                          : [App.nick, App._guestName || '상대'];
   const seed = (Math.random() * 1e9) | 0;
-  App.state = window.Engine.newGame({ seed, names, aiFlags: [false, false], mode: 'classic' });
-  App._seq = 0; App._cap = [0, 0]; App._go = [0, 0]; App._freshDeal = true;
-  App._animSeq = -1; App._animating = false; App._inFlightCapIds = null; App._floorPos = {}; App._monthSlot = {}; App._flyingFloorIds = null;
+  App.state = window.Engine.newGame({ seed, names, aiFlags: [false, false], mode: 'classic', starter: starter || 0 });
+  resetRoundState();
   clearFx();
   show('table'); dealTicks(); afterChange();
+}
+
+/* ---------------- 선(先) 정하기 ---------------- */
+const FP_N = 6; // 중앙에 까는 카드 수
+
+/* 서로 다른 월 6장 뽑기(무승부 없음) */
+function pickDrawCards(rng) {
+  const deck = window.Hwatu.shuffle(window.Hwatu.createDeck(), rng);
+  const seen = new Set(), out = [];
+  for (const c of deck) { if (!seen.has(c.month)) { seen.add(c.month); out.push(c); if (out.length === FP_N) break; } }
+  return out;
+}
+
+/* 권위(single/host)가 선 정하기 시작 */
+function beginFirstPick() {
+  const seed = (Math.random() * 1e9) | 0;
+  App._draw = { cards: pickDrawCards(window.Hwatu.makeRng(seed)), picks: [null, null], starter: null, revealed: false };
+  show('firstpick');
+  renderFirstPick();
+  $('#fpStatus').className = 'fp-status';
+  $('#fpStatus').textContent = (App.mode === 'single') ? '카드를 한 장 고르세요' : '카드를 고르세요 · 상대도 고르는 중';
+  if (App.mode === 'host') broadcastDraw();
+}
+
+/* 카드에 표시할 앞면(공개된 픽만) */
+function fpFace(d, slot) {
+  if (!d.revealed) return null;
+  if (slot !== d.picks[0] && slot !== d.picks[1]) return null;
+  if (Array.isArray(d.cards)) return d.cards[slot];   // 권위측
+  if (d.revealCards) return d.revealCards[slot];      // 게스트측
+  return null;
+}
+
+function renderFirstPick() {
+  const d = App._draw; if (!d) return;
+  const n = Array.isArray(d.cards) ? d.cards.length : (d.n || FP_N);
+  const wrap = $('#fpCards'); wrap.innerHTML = '';
+  for (let i = 0; i < n; i++) {
+    const face = fpFace(d, i);
+    const mine = d.picks[App.myIdx] === i, opp = d.picks[1 - App.myIdx] === i;
+    const slot = document.createElement('div');
+    slot.className = 'fp-slot'; slot.dataset.slot = i;
+    const canPick = !d.revealed && d.picks[App.myIdx] == null && !d.picks.includes(i);
+    if (canPick) slot.classList.add('pickable');
+    if ((mine || opp) && !d.revealed) slot.classList.add('taken');
+    if (d.revealed && (mine || opp)) slot.classList.add('flip');
+    slot.appendChild(window.Hwatu.makeCardEl(face, { faceUp: !!face }));
+    const tag = document.createElement('span');
+    tag.className = 'fp-tag' + (mine ? ' me' : opp ? ' opp' : '');
+    tag.textContent = mine ? '나' : (opp ? '상대' : '');
+    slot.appendChild(tag);
+    if (d.revealed && face) {
+      const mo = document.createElement('span'); mo.className = 'fp-month';
+      const th = window.Hwatu.MONTH_THEME[face.month];
+      mo.textContent = face.month + '월' + (th ? ' ' + th.name : '');
+      slot.appendChild(mo);
+    }
+    wrap.appendChild(slot);
+  }
+}
+
+/* 카드 클릭 (모든 모드 공통) */
+function onFirstPickClick(e) {
+  const slotEl = e.target.closest('.fp-slot'); if (!slotEl) return;
+  const d = App._draw; if (!d || d.revealed) return;
+  const slot = Number(slotEl.dataset.slot);
+  if (d.picks[App.myIdx] != null) return;     // 이미 고름
+  if (d.picks.includes(slot)) return;         // 이미 누가 가져간 슬롯
+  if (App.mode === 'guest') {
+    d.picks[App.myIdx] = slot;                // 낙관적 표시(호스트가 확정/거부)
+    renderFirstPick();
+    $('#fpStatus').textContent = '상대를 기다리는 중…';
+    App.net && App.net.send({ t: 'intent', intent: { type: 'pickFirst', slot } });
+    return;
+  }
+  authorityPick(App.myIdx, slot);             // single / host
+}
+
+/* 권위측: 한쪽 픽 확정 */
+function authorityPick(idx, slot) {
+  const d = App._draw; if (!d || d.revealed) return;
+  if (d.picks[idx] != null || d.picks.includes(slot)) return;
+  d.picks[idx] = slot;
+  window.SFX && SFX.flip && SFX.flip();
+  renderFirstPick();
+  if (App.mode === 'host') broadcastDraw();
+  // single: 사람이 골랐으면 AI가 곧 고름
+  if (App.mode === 'single' && idx === App.myIdx && d.picks[1 - App.myIdx] == null) {
+    $('#fpStatus').textContent = 'AI가 고르는 중…';
+    setTimeout(() => {
+      const free = []; for (let i = 0; i < FP_N; i++) if (!d.picks.includes(i)) free.push(i);
+      authorityPick(1 - App.myIdx, free[(Math.random() * free.length) | 0]);
+    }, 750);
+  }
+  if (d.picks[0] != null && d.picks[1] != null) resolveFirstPick();
+}
+
+/* 호스트가 게스트 픽 수신 */
+function hostReceivePick(slot) {
+  const d = App._draw; if (!d || d.revealed) return;
+  if (d.picks[1] != null || d.picks.includes(slot)) { broadcastDraw(); return; } // 충돌 → 재동기화
+  authorityPick(1, slot);
+}
+
+/* 양쪽 완료 → 비교 → 선 결정 → 게임 시작 */
+function resolveFirstPick() {
+  const d = App._draw;
+  const c0 = d.cards[d.picks[0]], c1 = d.cards[d.picks[1]];
+  d.starter = (c1.month > c0.month) ? 1 : 0; // 높은 월이 선 (월 중복 없음)
+  d.revealed = true;
+  if (App.mode === 'host') broadcastDrawResult();
+  renderFirstPickReveal();
+  setTimeout(() => {
+    if (App.mode === 'single') dealSingle(d.starter);
+    else if (App.mode === 'host') hostStartGame(d.starter);
+  }, 2200);
+}
+
+function renderFirstPickReveal() {
+  const d = App._draw; if (!d) return;
+  renderFirstPick();
+  const iWon = d.starter === App.myIdx;
+  const st = $('#fpStatus');
+  st.className = 'fp-status win';
+  st.textContent = iWon ? '🎉 내가 선(先)! 먼저 시작합니다' : '상대가 선(先) — 상대가 먼저 시작해요';
+  if (window.SFX) { SFX.flip && SFX.flip(); if (iWon && SFX.sparkle) setTimeout(() => SFX.sparkle(), 250); }
+}
+
+function broadcastDraw() {
+  if (App.mode !== 'host' || !App.net) return;
+  App.net.send({ t: 'draw', n: FP_N, picks: App._draw.picks });
+}
+function broadcastDrawResult() {
+  if (App.mode !== 'host' || !App.net) return;
+  const d = App._draw;
+  App.net.send({ t: 'drawResult', picks: d.picks, starter: d.starter, c0: d.cards[d.picks[0]], c1: d.cards[d.picks[1]] });
+}
+
+/* 게스트: 선 정하기 화면 표시/갱신 */
+function guestShowDraw(msg) {
+  if (!App._draw || App._draw.revealed) App._draw = { n: msg.n, picks: [null, null], revealed: false };
+  App._draw.n = msg.n;
+  App._draw.picks = msg.picks.slice(); // 권위 picks로 동기화(거부된 낙관적 픽 해제)
+  show('firstpick');
+  renderFirstPick();
+  const d = App._draw;
+  const st = $('#fpStatus'); st.className = 'fp-status';
+  if (d.picks[App.myIdx] == null) st.textContent = '카드를 고르세요';
+  else if (d.picks[1 - App.myIdx] == null) st.textContent = '상대를 기다리는 중…';
+}
+function guestShowDrawResult(msg) {
+  const d = App._draw || (App._draw = { n: FP_N, picks: [null, null] });
+  d.picks = msg.picks.slice(); d.starter = msg.starter; d.revealed = true;
+  d.revealCards = {}; d.revealCards[msg.picks[0]] = msg.c0; d.revealCards[msg.picks[1]] = msg.c1;
+  show('firstpick');
+  renderFirstPickReveal();
 }
 
 /* ---------------- 렌더링 ---------------- */

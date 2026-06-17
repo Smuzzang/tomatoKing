@@ -77,6 +77,24 @@ button.link{background:none;border:none;color:#cfe6db;font-size:13px;cursor:poin
 .room-code{font-size:44px;font-weight:900;letter-spacing:10px;color:var(--gold);margin:8px 0;}
 .muted{color:#cfe6db;font-size:13px;}
 
+/* ---------- 선(先) 정하기 ---------- */
+.firstpick{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:18px;}
+.firstpick .lobby-card{width:min(560px,100%);}
+.fp-cards{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin:14px 0 4px;}
+.fp-slot{position:relative;display:flex;flex-direction:column;align-items:center;gap:5px;}
+.fp-slot .card{transition:transform .15s cubic-bezier(.2,1.2,.4,1),filter .15s;cursor:default;}
+.fp-slot.pickable .card{cursor:pointer;}
+.fp-slot.pickable .card:hover{transform:translateY(-10px) scale(1.05);filter:drop-shadow(0 14px 20px rgba(0,0,0,.55));}
+.fp-slot.taken .card{filter:brightness(.6);}
+.fp-slot.flip .card{animation:fpFlip .5s ease;}
+@keyframes fpFlip{0%{transform:rotateY(90deg) scale(1.1);}100%{transform:rotateY(0) scale(1);}}
+.fp-tag{font-size:12px;font-weight:800;padding:2px 9px;border-radius:20px;min-height:20px;}
+.fp-tag.me{background:var(--tomato);color:#fff;}
+.fp-tag.opp{background:#3a6ad0;color:#fff;}
+.fp-month{font-size:12px;color:var(--gold);font-weight:800;}
+.fp-status{font-size:15px;color:#e7f3ee;min-height:22px;font-weight:600;}
+.fp-status.win{color:var(--gold);font-size:18px;font-weight:900;}
+
 /* ---------- 테이블 (PC 가로) ---------- */
 .table{height:100%;display:flex;gap:8px;padding:10px;position:relative;}
 .col{display:flex;flex-direction:column;min-height:0;}
@@ -242,7 +260,7 @@ button.link{background:none;border:none;color:#cfe6db;font-size:13px;cursor:poin
   color:#fff;width:34px;height:34px;border-radius:50%;font-size:15px;cursor:pointer;}
 
 /* 온라인 채팅 — 좌측 중앙 빈 공간(카드와 겹치지 않게) */
-.chat{position:absolute;left:10px;top:50%;transform:translateY(-50%);width:190px;max-height:52%;z-index:40;
+.chat{position:absolute;left:10px;bottom:10px;width:190px;max-height:52%;z-index:40;
   background:rgba(0,0,0,.45);border:1px solid rgba(255,255,255,.15);border-radius:12px;
   display:flex;flex-direction:column;backdrop-filter:blur(3px);box-shadow:0 6px 18px rgba(0,0,0,.4);}
 .chat-head{font-size:12px;font-weight:800;color:#e8d8b0;padding:6px 10px;border-bottom:1px solid rgba(255,255,255,.1);}

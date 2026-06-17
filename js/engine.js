@@ -41,7 +41,7 @@ function stealPi(state, fromIdx, toIdx, count) {
 }
 
 /* ---- 게임 시작 ---- */
-function newGame({ seed, names = ['나', '상대'], aiFlags = [false, true], mode = 'classic' }) {
+function newGame({ seed, names = ['나', '상대'], aiFlags = [false, true], mode = 'classic', starter = 0 }) {
   const rng = window.Hwatu.makeRng(seed >>> 0);
   let deck, floor, hands;
   // 딜링 (특수상황이면 재딜)
@@ -65,8 +65,8 @@ function newGame({ seed, names = ['나', '상대'], aiFlags = [false, true], mod
       hand: hands[i], captured: [],
       goCount: 0, scoreAtGo: 0, shake: 0, bomb: 0, shakeMonths: [],
     })),
-    turn: 0,           // 선(先) = 0
-    starter: 0,
+    turn: starter,     // 선(先)
+    starter,
     phase: 'await_play',
     choice: null,
     turnCtx: null,
@@ -147,10 +147,11 @@ function beginResolve(state) {
       state.floor.push(h); state.floor.push(d);
       ctx.events.push('뻑');
     } else if (floorM.length >= 2) {
-      // 4장 완성 → 싹 회수 + 피 1장
+      // 4장 완성(손패+더미가 같은 월 + 바닥 2장) → 싹 회수 + 피 1장 (더미가 낸 패와 맞음 = 쪽 보너스)
       const take = floorM.slice(0, 2);
       removeById(state.floor, take.map(c => c.id));
       ctx.hcap = [h, d, ...take]; ctx.took3 = true;
+      ctx.pi += 1;                 // ← 빠져있던 추가 피
       ctx.events.push('따닥');
     }
     return finalizeTurn(state);
