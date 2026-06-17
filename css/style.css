@@ -151,6 +151,30 @@ button.link{background:none;border:none;color:#cfe6db;font-size:13px;cursor:poin
 .card.choose .hwatu-svg{outline:3px solid #4fd1ff;outline-offset:-1px;border-radius:9px;}
 .card.choose{cursor:pointer;animation:pulse 1s infinite;}
 .card.card-sm{--card-w:36px;width:36px;height:59px;filter:drop-shadow(0 2px 3px rgba(0,0,0,.35));}
+/* 폭탄 빚 더미패 카드 (💣 표시) */
+.card.deck-play{position:relative;}
+.card.deck-play::after{content:'💣';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+  font-size:26px;line-height:1;filter:drop-shadow(0 2px 4px rgba(0,0,0,.7));pointer-events:none;}
+.card.card-sm.deck-play::after{font-size:15px;}
+.card.deck-play.playable{cursor:pointer;}
+.card.deck-play.playable:hover{transform:translateY(-12px) scale(1.05);}
+/* 국진(9월) 열끗/쌍피 전환 */
+.card.kukjin{position:relative;overflow:visible;}
+.kukjin-badge{position:absolute;left:50%;bottom:-5px;transform:translateX(-50%);
+  font-size:8px;font-weight:900;background:var(--gold);color:#2a2208;padding:0 4px;border-radius:6px;
+  line-height:1.4;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.5);pointer-events:none;}
+.card.kukjin-toggle{cursor:pointer;}
+.card.kukjin-toggle:hover{filter:brightness(1.2);}
+/* 흔든 패 공개 (우측 이벤트 영역) */
+.shake-zone{display:flex;flex-direction:column;gap:6px;margin-top:8px;align-items:center;width:100%;}
+.shake-row{background:rgba(0,0,0,.32);border:1px solid rgba(232,176,74,.45);border-radius:10px;
+  padding:4px 5px 5px;display:flex;flex-direction:column;align-items:center;gap:2px;}
+.shake-row.me{border-color:rgba(255,120,90,.65);}
+.shake-lab{font-size:10px;font-weight:800;color:var(--gold);white-space:nowrap;}
+.shake-row.me .shake-lab{color:#ff9a7a;}
+.shake-cards{display:flex;}
+.shake-cards .card-sm{margin-left:-16px;box-shadow:none;}
+.shake-cards .card-sm:first-child{margin-left:0;}
 .cap-group .card-sm{margin-left:-24px;}
 .cap-group .card-sm:first-of-type{margin-left:0;}
 .floor .card{width:var(--card-w);height:var(--card-h);}

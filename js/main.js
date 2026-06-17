@@ -268,10 +268,12 @@ function applyGuestIntent(intent) {
   const s = App.state; if (!s || s.phase === 'ended') return;
   // 게스트는 players[1]. 그의 차례일 때만 허용
   if (s.turn !== 1) return;
-  if (intent.type === 'play' && s.phase === 'await_play') window.Engine.playCard(s, intent.cardId);
+  if (intent.type === 'play' && s.phase === 'await_play') window.Engine.playCard(s, intent.cardId, intent.shake);
   else if (intent.type === 'bomb' && s.phase === 'await_play') window.Engine.playBomb(s, intent.month);
+  else if (intent.type === 'deckPlay' && s.phase === 'await_play') window.Engine.playFromDeck(s);
   else if (intent.type === 'match' && s.phase === 'await_match') window.Engine.resolveMatch(s, intent.chosenId);
   else if (intent.type === 'goStop' && s.phase === 'await_go_stop') window.Engine.decideGoStop(s, intent.decision);
+  else if (intent.type === 'kukjinChoose' && s.phase === 'await_kukjin') window.Engine.resolveKukjin(s, intent.asPi);
   else return;
   afterChange();
 }
@@ -323,15 +325,18 @@ function postRender() {
 
   if (App.mode === 'single') {
     const cur = s.players[s.turn];
+    if (s.phase === 'await_kukjin') { if (cur.isAI) setTimeout(aiStep, 800); else showKukjinSoon(); return; }
     if (cur.isAI) { setTimeout(aiStep, aiDelay(s.phase)); return; }
     if (s.phase === 'await_go_stop' && isMine) showGoStopSoon();
     return;
   }
   if (App.mode === 'host') {
+    if (s.phase === 'await_kukjin') { if (s.kukjinPending.player === 0) showKukjinSoon(); return; }
     if (s.phase === 'await_go_stop' && s.turn === 0) showGoStopSoon();
     return;
   }
   if (App.mode === 'guest') {
+    if (s.phase === 'await_kukjin') { if (s.kukjinPending.player === 1) showKukjinSoon(); return; }
     if (s.phase === 'await_go_stop' && s.turn === 1) showGoStopSoon();
     return;
   }
@@ -349,16 +354,27 @@ function aiDelay(phase) {
 function aiStep() {
   const s = App.state; if (!s || s.phase === 'ended') return;
   const cur = s.players[s.turn]; if (!cur.isAI) return;
+  if (s.phase === 'await_kukjin') { // AI 국진 선택: 열끗 4장+ 이면 열끗, 아니면 쌍피
+    const p = s.players[s.kukjinPending.player];
+    const animals = p.captured.filter(c => c.type === 'animal' && !c.kukjin).length;
+    window.Engine.resolveKukjin(s, animals < 4); afterChange(); return;
+  }
   if (s.phase === 'await_play') {
-    const bombs = window.Engine.bombableMonths(s);
-    if (bombs.length && App.diff !== 'easy') {              // AI 폭탄
-      window.Engine.playBomb(s, bombs[0]);
+    if (cur.hand.length === 0 && (cur.deckDebt || 0) > 0) { // 손패 없음 → 더미패로 침(폭탄 빚)
+      window.Engine.playFromDeck(s);
     } else {
-      let id = window.AI.chooseCard(s);
-      if (App.diff === 'easy' && Math.random() < 0.4) {     // 쉬움: 가끔 랜덤
-        const h = cur.hand[(Math.random() * cur.hand.length) | 0]; id = h.id;
+      const bombs = window.Engine.bombableMonths(s);
+      if (bombs.length && App.diff !== 'easy') {              // AI 폭탄
+        window.Engine.playBomb(s, bombs[0]);
+      } else {
+        let id = window.AI.chooseCard(s);
+        if (App.diff === 'easy' && Math.random() < 0.4) {     // 쉬움: 가끔 랜덤
+          const h = cur.hand[(Math.random() * cur.hand.length) | 0]; id = h.id;
+        }
+        // AI 흔들기: 어려움은 항상, 보통은 절반, 쉬움은 안 함
+        const shake = window.Engine.canShake(s, id) && (App.diff === 'hard' || (App.diff === 'normal' && Math.random() < 0.5));
+        window.Engine.playCard(s, id, shake);
       }
-      window.Engine.playCard(s, id);
     }
   } else if (s.phase === 'await_match') {
     window.Engine.resolveMatch(s, window.AI.chooseMatch(s));
@@ -373,13 +389,61 @@ function aiStep() {
 /* ---------------- 입력 ---------------- */
 function onHandClick(e) {
   if (App._animating) return; // 연출 중 입력 잠금
-  const el = e.target.closest('.card'); if (!el || !el.dataset.cardId) return;
+  const el = e.target.closest('.card'); if (!el) return;
   const s = App.state;
   if (!s || s.phase !== 'await_play' || s.turn !== App.myIdx) return;
+  // 폭탄 빚: 💣 더미패 카드 클릭 → 더미에서 까서 침
+  if (el.dataset.deckPlay) {
+    if (!el.dataset.active) return; // 손패 남았거나 첫 장 아님 → 아직 못 침
+    App._playSrcRect = null;
+    if (App.mode === 'guest') { App.busy = true; App.net.send({ t: 'intent', intent: { type: 'deckPlay' } }); return; }
+    window.Engine.playFromDeck(s); afterChange(); return;
+  }
+  if (!el.dataset.cardId) return;
   const id = el.dataset.cardId;
   App._playSrcRect = el.getBoundingClientRect(); // 낙하 애니메이션 출발점(클릭한 카드)
-  if (App.mode === 'guest') { App.busy = true; App.net.send({ t: 'intent', intent: { type: 'play', cardId: id } }); return; }
-  window.Engine.playCard(s, id); afterChange();
+  if (window.Engine.canShake(s, id)) { askShake(id); return; } // 흔들기 가능 → 물어봄
+  doPlay(id, false);
+}
+/* 흔들기 확인 팝업 */
+function askShake(cardId) {
+  const box = $('#modalBox');
+  box.innerHTML = `<h2>흔들기?</h2>
+    <p class="muted">같은 월 3장을 들고 있어요!<br>흔들면 점수 <b>×2</b> — 단, <b>지면 상대 점수도 ×2</b>예요.</p>
+    <div class="modal-actions">
+      <button class="btn-go" id="shYes">🃏 흔들기 (×2)</button>
+      <button class="btn-stop" id="shNo">그냥 내기</button>
+    </div>`;
+  $('#modal').hidden = false;
+  $('#shYes').onclick = () => { $('#modal').hidden = true; doPlay(cardId, true); };
+  $('#shNo').onclick = () => { $('#modal').hidden = true; doPlay(cardId, false); };
+}
+function doPlay(cardId, shake) {
+  const s = App.state; if (!s) return;
+  if (App.mode === 'guest') { App.busy = true; App.net.send({ t: 'intent', intent: { type: 'play', cardId, shake } }); return; }
+  window.Engine.playCard(s, cardId, shake); afterChange();
+}
+/* 국진 먹은 직후 선택 팝업 (한 번만, 변경 불가) */
+function showKukjinSoon() { setTimeout(showKukjin, 1950); }
+function showKukjin() {
+  const s = App.state;
+  if (!s || s.phase !== 'await_kukjin') return;
+  const box = $('#modalBox');
+  box.innerHTML = `<h2>국진(9월) 획득!</h2>
+    <p class="muted">국진을 무엇으로 쓸까요?<br><b>한 번 정하면 바꿀 수 없어요.</b></p>
+    <div class="modal-actions">
+      <button class="btn-go" id="kjPi">🪙 쌍피 (피 2장)</button>
+      <button class="btn-stop" id="kjAni">🦌 열끗</button>
+    </div>`;
+  $('#modal').hidden = false;
+  $('#kjPi').onclick = () => decideKukjin(true);
+  $('#kjAni').onclick = () => decideKukjin(false);
+}
+function decideKukjin(asPi) {
+  $('#modal').hidden = true;
+  const s = App.state; if (!s) return;
+  if (App.mode === 'guest') { App.busy = true; App.net.send({ t: 'intent', intent: { type: 'kukjinChoose', asPi } }); return; }
+  window.Engine.resolveKukjin(s, asPi); afterChange();
 }
 function onBombClick() {
   if (App._animating) return;
@@ -699,9 +763,14 @@ function render() {
   badge('#myGo', me.goCount);
   badge('#oppGo', opp.goCount);
 
-  // 상대 손패(뒷면)
+  // 상대 손패(뒷면) + 폭탄 빚(더미패) 표시
   const oh = $('#oppHand'); oh.innerHTML = '';
   opp.hand.forEach(() => oh.appendChild(window.Hwatu.makeCardEl(null, { faceUp: false, small: true })));
+  for (let i = 0; i < (opp.deckDebt || 0); i++) {
+    const el = window.Hwatu.makeCardEl(null, { faceUp: false, small: true });
+    el.classList.add('deck-play');
+    oh.appendChild(el);
+  }
 
   // 내 손패
   const mh = $('#myHand'); mh.innerHTML = '';
@@ -714,6 +783,16 @@ function render() {
     }
     mh.appendChild(el);
   });
+  // 폭탄 빚: 손패 끝에 💣 더미패 카드(손패 다 떨어지면 첫 장 활성화)
+  const debt = me.deckDebt || 0;
+  for (let i = 0; i < debt; i++) {
+    const el = window.Hwatu.makeCardEl(null, { faceUp: false });
+    el.classList.add('deck-play');
+    el.dataset.deckPlay = '1';
+    if (canPlay && me.hand.length === 0 && i === 0) { el.classList.add('playable', 'hint'); el.dataset.active = '1'; }
+    else el.classList.add('dim');
+    mh.appendChild(el);
+  }
 
   // 바닥
   const fl = $('#floor'); fl.innerHTML = '';
@@ -736,8 +815,9 @@ function render() {
   $('#deckN').textContent = s.deck.length;
 
   // 획득패
-  renderCaptured($('#myCap'), me.captured);
-  renderCaptured($('#oppCap'), opp.captured);
+  renderCaptured($('#myCap'), me.captured, true);
+  renderCaptured($('#oppCap'), opp.captured, false);
+  renderShakes(s); // 흔든 패 공개
 
   // 차례 표시 / 상태
   let tag = '';
@@ -770,7 +850,8 @@ function render() {
 /* ---------------- 턴 타이머(20초) ---------------- */
 const TURN_LIMIT = 20;
 function manageTimer(s) {
-  const actionable = ['await_play', 'await_match', 'await_go_stop'].includes(s.phase);
+  if (App._dev) { stopTimer(); return; } // 테스트 모드: 자동진행 끔
+  const actionable = ['await_play', 'await_match', 'await_go_stop', 'await_kukjin'].includes(s.phase);
   if (!actionable || s.phase === 'ended' || s.turn !== App.myIdx) { stopTimer(); return; }
   const key = `${s.playSeq || 0}-${s.phase}-${s.turn}`;
   if (key === App._timerKey) return; // 같은 결정점 → 유지
@@ -800,8 +881,20 @@ function renderTimer() {
 }
 function autoAct() {
   const s = App.state; if (!s || s.turn !== App.myIdx) return;
+  $('#modal').hidden = true; // 흔들기/고스톱 등 미응답 팝업 닫고 자동 진행
   const guest = App.mode === 'guest';
+  if (s.phase === 'await_kukjin') { // 국진 미선택 → 쌍피로 자동
+    if (guest) App.net.send({ t: 'intent', intent: { type: 'kukjinChoose', asPi: true } });
+    else { window.Engine.resolveKukjin(s, true); afterChange(); }
+    return;
+  }
   if (s.phase === 'await_play') {
+    const cur = s.players[s.turn];
+    if (cur.hand.length === 0 && (cur.deckDebt || 0) > 0) { // 손패 없음 → 더미패로 침
+      if (guest) App.net.send({ t: 'intent', intent: { type: 'deckPlay' } });
+      else { window.Engine.playFromDeck(s); afterChange(); }
+      return;
+    }
     const bombs = window.Engine.bombableMonths(s);
     if (bombs.length) {
       if (guest) App.net.send({ t: 'intent', intent: { type: 'bomb', month: bombs[0] } });
@@ -904,27 +997,57 @@ function scatterFloor() {
   });
 }
 
-function renderCaptured(container, cardsRaw) {
+function renderCaptured(container, cardsRaw, mine) {
   container.innerHTML = '';
   // 쓸어담기 애니메이션 중인 카드는 아직 스트립에 표시하지 않음
   const skip = App._inFlightCapIds;
   const cards = (skip && skip.size) ? cardsRaw.filter(c => !skip.has(c.id)) : cardsRaw;
+  const asPi = c => c.type === 'animal' && c.kukjin && c.kukjinAsPi; // 쌍피로 쓰는 국진
   const groups = {
     gwang: cards.filter(c => c.type === 'gwang'),
-    animal: cards.filter(c => c.type === 'animal'),
+    animal: cards.filter(c => c.type === 'animal' && !asPi(c)),
     ribbon: cards.filter(c => c.type === 'ribbon'),
-    junk: cards.filter(c => c.type === 'junk'),
+    junk: cards.filter(c => c.type === 'junk' || asPi(c)),
   };
   const labels = { gwang: '광', animal: '열', ribbon: '띠', junk: '피' };
   for (const k of ['gwang', 'animal', 'ribbon', 'junk']) {
     const arr = groups[k]; if (!arr.length) continue;
     const g = document.createElement('div'); g.className = 'cap-group';
     const lab = document.createElement('span'); lab.className = 'cap-label';
-    const n = k === 'junk' ? arr.reduce((s, c) => s + (c.piValue || 1), 0) : arr.length;
+    const n = k === 'junk' ? arr.reduce((s, c) => s + (c.kukjin ? 2 : (c.piValue || 1)), 0) : arr.length;
     lab.textContent = `${labels[k]}${n}`; g.appendChild(lab);
-    arr.forEach(c => g.appendChild(window.Hwatu.makeCardEl(c, { faceUp: true, small: true })));
+    arr.forEach(c => {
+      const el = window.Hwatu.makeCardEl(c, { faceUp: true, small: true });
+      if (c.kukjin) { // 국진: 먹을 때 정한 용도 표시(열/쌍피)
+        el.classList.add('kukjin');
+        const b = document.createElement('span'); b.className = 'kukjin-badge';
+        b.textContent = c.kukjinAsPi ? '쌍피' : '열';
+        el.appendChild(b);
+      }
+      g.appendChild(el);
+    });
     container.appendChild(g);
   }
+}
+
+/* 흔든 패 공개: 우측 이벤트 영역에 양쪽이 흔든 3장씩 나란히 표시 */
+function renderShakes(s) {
+  const z = $('#shakeZone'); if (!z) return;
+  z.innerHTML = '';
+  [1 - App.myIdx, App.myIdx].forEach(i => { // 상대 먼저(위), 나중(아래)
+    const p = s.players[i];
+    (p.shaken || []).forEach(sh => {
+      const row = document.createElement('div');
+      row.className = 'shake-row' + (i === App.myIdx ? ' me' : ' opp');
+      const lab = document.createElement('span'); lab.className = 'shake-lab';
+      lab.textContent = (i === App.myIdx ? '🃏 내 흔들기' : '🃏 상대 흔들기');
+      row.appendChild(lab);
+      const cw = document.createElement('div'); cw.className = 'shake-cards';
+      sh.cards.forEach(c => cw.appendChild(window.Hwatu.makeCardEl(c, { faceUp: true, small: true })));
+      row.appendChild(cw);
+      z.appendChild(row);
+    });
+  });
 }
 
 function scoreParts(cards) {
@@ -973,17 +1096,21 @@ function animateTurn(s, lp, mine) {
 
   lockInput(true);
 
-  // 1) 손패 → 바닥(맞는 패 위에 촥)
-  const handTgt = flyTarget(lp.hand);
-  const handSrc = (mine && App._playSrcRect) ? App._playSrcRect : handAreaSrc(lp.by);
-  App._playSrcRect = null;
-  window.SFX && SFX.slap();
-  if (lc && lc.handCaptured) {
-    const off = pairOffset(handTgt, 8);  // 맞는 패 위에 비스듬히 겹침
-    const el = flyCard(handSrc, off, lp.hand, dur, { persist: true, landRot: 8 });
-    if (el) { el.style.zIndex = '22'; persistent.push(rectObj(el, off)); } // 먹힌 바닥패 위로
+  // 1) 손패 → 바닥(맞는 패 위에 촥) — 더미패 치기(lp.hand 없음)면 생략
+  if (lp.hand) {
+    const handTgt = flyTarget(lp.hand);
+    const handSrc = (mine && App._playSrcRect) ? App._playSrcRect : handAreaSrc(lp.by);
+    App._playSrcRect = null;
+    window.SFX && SFX.slap();
+    if (lc && lc.handCaptured) {
+      const off = pairOffset(handTgt, 8);  // 맞는 패 위에 비스듬히 겹침
+      const el = flyCard(handSrc, off, lp.hand, dur, { persist: true, landRot: 8 });
+      if (el) { el.style.zIndex = '22'; persistent.push(rectObj(el, off)); } // 먹힌 바닥패 위로
+    } else {
+      flyCard(handSrc, handTgt, lp.hand, dur); // 못 먹으면 바닥에 깔림(자동 제거)
+    }
   } else {
-    flyCard(handSrc, handTgt, lp.hand, dur); // 못 먹으면 바닥에 깔림(자동 제거)
+    App._playSrcRect = null;
   }
 
   // 1b) 바닥에서 먹힌 패들: 제자리에 오버레이로 띄워 보여줌(쓸어담기 대상)
@@ -1061,8 +1188,8 @@ function sweepToStrip(persistent, stripSel, sweepDur, byIdx) {
 function finishSweep(byIdx) {
   const s = App.state; if (!s) { lockInput(false); return; }
   if (App._inFlightCapIds) App._inFlightCapIds.clear();
-  renderCaptured($('#myCap'), s.players[App.myIdx].captured);
-  renderCaptured($('#oppCap'), s.players[1 - App.myIdx].captured);
+  renderCaptured($('#myCap'), s.players[App.myIdx].captured, true);
+  renderCaptured($('#oppCap'), s.players[1 - App.myIdx].captured, false);
   bump(byIdx === App.myIdx ? '#myCap' : '#oppCap');
   lockInput(false);
 }
@@ -1117,7 +1244,7 @@ function addChatMessage(name, text, mine) {
 
 const EVENT_MAP = {
   '쪽': ['쪽! 🎯', 'gold'], '뻑': ['뻑! 💥', 'red'], '따닥': ['따닥! ⚡', 'gold'],
-  '뻑먹기': ['뻑 회수! 🍱', 'gold'], '싹쓸이': ['싹쓸이! 🧹', 'gold'],
+  '뻑먹기': ['뻑 회수! 🍱', 'gold'], '자뻑': ['자뻑! 💥💥', 'red'], '싹쓸이': ['싹쓸이! 🧹', 'gold'],
   '폭탄': ['폭탄! 💣', 'red'], '흔들기': ['흔들기! 🃏', 'gold'],
 };
 function fireEvent(e) {
@@ -1287,6 +1414,54 @@ const HELP_HTML = `
 <b>박</b> 피박(상대 피 7장 미만)·광박(상대 광 0장)으로 점수 ×2.<br>
 <b>턴 제한</b> 한 턴 20초! 넘기면 자동으로 진행돼요.`;
 
+/* ---------------- 테스트(dev) 모드: ?dev=1 (로컬에서만 작동, 라이브 배포본은 비활성) ---------------- */
+function initDev() {
+  if (!/[?&]dev\b/.test(location.search)) return;
+  const local = /^(localhost|127\.0\.0\.1|0\.0\.0\.0|\[?::1\]?)$/.test(location.hostname) || location.protocol === 'file:';
+  if (!local) return; // 라이브(github.io 등)에선 테스트 모드 차단
+  App._dev = true; // 타이머 자동진행 끔
+  const DECK = window.Hwatu.createDeck();
+  const C = id => JSON.parse(JSON.stringify(DECK.find(c => c.id === id)));
+
+  function devStart(setup, hint) {
+    App.mode = 'single'; App.myIdx = 0; App.nick = '테스트';
+    window.SFX && SFX.init();
+    const s = window.Engine.newGame({ seed: 1, names: ['나', 'AI'], aiFlags: [false, true], mode: 'normal', starter: 0 });
+    s.players[0].hand = []; s.players[1].hand = [C('m12_3')];
+    s.players[0].captured = []; s.players[1].captured = [C('m3_2'), C('m3_3'), C('m4_2'), C('m4_3')];
+    s.floor = []; s.deck = []; s.phase = 'await_play'; s.turn = 0; s.turnCtx = null; s.ppeok = {}; s.events = []; s.playSeq = 0;
+    setup(s);
+    App.state = s; resetRoundState(); clearFx();
+    show('table'); afterChange();
+    toast('🧪 ' + hint, 'gold');
+  }
+
+  const SC = {
+    '쪽': () => devStart(s => { s.players[0].hand = [C('m5_0'), C('m7_0')]; s.floor = [C('m1_0'), C('m2_0')]; s.deck = [C('m5_1'), C('m8_0')]; }, '5월(난초)을 내세요 → 쪽'),
+    '따닥(4장)': () => devStart(s => { s.players[0].hand = [C('m5_0'), C('m7_0')]; s.floor = [C('m5_1'), C('m5_2'), C('m1_0')]; s.deck = [C('m5_3'), C('m8_0')]; }, '5월을 내세요 → 따닥(4장)'),
+    '자뻑': () => devStart(s => { s.players[0].hand = [C('m5_0'), C('m7_0')]; s.floor = [C('m5_1'), C('m5_2'), C('m5_3')]; s.ppeok = { '5': 0 }; s.deck = [C('m8_0')]; }, '5월을 내세요 → 자뻑(피 2장)'),
+    '2장폭탄': () => devStart(s => { s.players[0].hand = [C('m5_0'), C('m5_1'), C('m7_0')]; s.floor = [C('m5_2'), C('m5_3'), C('m1_0')]; s.deck = [C('m8_0')]; }, '💣 폭탄 버튼을 누르세요 → 2장 폭탄(빚 1)'),
+    '3장폭탄': () => devStart(s => { s.players[0].hand = [C('m5_0'), C('m5_1'), C('m5_2'), C('m7_0')]; s.floor = [C('m5_3'), C('m1_0')]; s.deck = [C('m8_0')]; }, '💣 폭탄 버튼을 누르세요 → 3장 폭탄(빚 2)'),
+    '흔들기': () => devStart(s => { s.players[0].hand = [C('m5_0'), C('m5_1'), C('m5_2'), C('m7_0')]; s.floor = [C('m1_0'), C('m2_0')]; s.deck = [C('m8_0'), C('m8_1')]; }, '5월(난초)을 내세요 → 흔들기(×2, 이기면 점수 2배)'),
+    '국진선택': () => devStart(s => { s.players[0].hand = [C('m9_0'), C('m1_0')]; s.floor = [C('m9_1'), C('m2_0')]; s.deck = [C('m8_0')]; }, '국진(술잔=9월)을 내세요 → 먹는 순간 열끗/쌍피 선택'),
+    '마지막판쓸이': () => devStart(s => { s.players[0].hand = [C('m5_0')]; s.floor = [C('m5_1'), C('m8_1')]; s.deck = [C('m8_0')]; }, '마지막 5월을 내세요 → 판쓸이지만 피 안 뺏김(상대 피 변화X 확인)'),
+    '폭탄빚(더미패)': () => devStart(s => { s.players[0].hand = []; s.players[0].deckDebt = 2; s.floor = [C('m5_1')]; s.deck = [C('m5_2'), C('m8_0'), C('m8_1')]; }, '💣 더미패 카드를 누르세요 → 덱에서 까서 침'),
+  };
+
+  const bar = document.createElement('div');
+  bar.id = 'devbar';
+  bar.style.cssText = 'position:fixed;top:3px;left:3px;z-index:99999;display:flex;flex-wrap:wrap;gap:3px;max-width:300px;background:rgba(0,0,0,.5);padding:4px;border-radius:6px;';
+  Object.keys(SC).forEach(name => {
+    const b = document.createElement('button');
+    b.textContent = name;
+    b.style.cssText = 'font-size:11px;padding:4px 6px;background:#2a2a2a;color:#ffd27a;border:1px solid #666;border-radius:5px;cursor:pointer;';
+    b.onclick = SC[name];
+    bar.appendChild(b);
+  });
+  document.body.appendChild(bar);
+  toast('🧪 테스트 모드 — 위 버튼으로 상황을 불러오세요', 'gold');
+}
+
 /* ---------------- 부팅 ---------------- */
-window.addEventListener('DOMContentLoaded', initLobby);
+window.addEventListener('DOMContentLoaded', () => { initLobby(); initDev(); });
 })();

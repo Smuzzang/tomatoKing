@@ -10,10 +10,12 @@ const CHO_MONTHS = [4, 5, 7];     // 초단
 /* 카드 배열을 카테고리별로 분류 */
 function classify(captured) {
   const gwang = captured.filter(c => c.type === 'gwang');
-  const animals = captured.filter(c => c.type === 'animal');
+  // 국진이 쌍피로 선택되면 열끗이 아니라 피로 셈
+  const animals = captured.filter(c => c.type === 'animal' && !(c.kukjin && c.kukjinAsPi));
   const ribbons = captured.filter(c => c.type === 'ribbon');
   const junks = captured.filter(c => c.type === 'junk');
-  const piTotal = junks.reduce((s, c) => s + (c.piValue || 1), 0);
+  const kukjinPi = captured.filter(c => c.type === 'animal' && c.kukjin && c.kukjinAsPi).length;
+  const piTotal = junks.reduce((s, c) => s + (c.piValue || 1), 0) + kukjinPi * 2;
   return { gwang, animals, ribbons, junks, piTotal };
 }
 
