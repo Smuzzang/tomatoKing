@@ -850,13 +850,14 @@ function render() {
     }
     mh.appendChild(el);
   });
-  // 폭탄 빚: 손패 끝에 💣 더미패 카드(손패 다 떨어지면 첫 장 활성화)
+  // 폭탄 빚: 손패 끝에 💣 더미패 카드. 내 턴이면 언제든 손패 대신 골라 쓸 수 있음(첫 장만 활성)
   const debt = me.deckDebt || 0;
   for (let i = 0; i < debt; i++) {
     const el = window.Hwatu.makeCardEl(null, { faceUp: false });
     el.classList.add('deck-play');
     el.dataset.deckPlay = '1';
-    if (canPlay && me.hand.length === 0 && i === 0) { el.classList.add('playable', 'hint'); el.dataset.active = '1'; }
+    el.title = '손패 대신 더미에서 까서 치기';
+    if (canPlay && i === 0 && s.deck.length > 0) { el.classList.add('playable', 'hint'); el.dataset.active = '1'; }
     else el.classList.add('dim');
     mh.appendChild(el);
   }
@@ -1001,6 +1002,31 @@ function slotCoordById(id, g) {
   const k = parseInt(id.slice(1), 10);
   if (id[0] === 'A') { const a = -Math.PI / 2 + k * (2 * Math.PI / 14); return { x: g.cx + Math.cos(a) * g.rxA, y: g.cy + Math.sin(a) * g.ryA }; }
   const a = -Math.PI / 2 + (k + 0.5) * (2 * Math.PI / 8); return { x: g.cx + Math.cos(a) * g.rxB, y: g.cy + Math.sin(a) * g.ryB };
+}
+
+/* 바닥의 비어있는 슬롯 1개를 화면 좌표(rect)로 반환 — 쪽 연출에서 낸 패를 깔 자리 */
+function freeFloorSlotScreen() {
+  const fl = $('#floor');
+  const fr = fl.getBoundingClientRect();
+  const cardEl = fl.querySelector('.card');
+  const cw = (cardEl && cardEl.offsetWidth) || 64, chh = (cardEl && cardEl.offsetHeight) || 105;
+  const W = fl.clientWidth || 500, H = fl.clientHeight || 280;
+  const g = floorGeom(W, H, cw, chh);
+  const ex = cw * 1.05, ey = chh * 0.9;
+  const cand = [];
+  for (let k = 0; k < 14; k++) cand.push('A' + k);
+  for (let k = 0; k < 8; k++) { const c = slotCoordById('B' + k, g); const dx = c.x - g.cx, dy = c.y - g.cy; if ((dx * dx) / (ex * ex) + (dy * dy) / (ey * ey) >= 1) cand.push('B' + k); }
+  const used = Object.values(App._monthSlot || {});
+  const occ = used.map(id => slotCoordById(id, g));
+  let best = cand[0], bestScore = -1;
+  cand.forEach(id => {
+    if (used.includes(id)) return;
+    const c = slotCoordById(id, g);
+    let md = 1e9; occ.forEach(o => { const d = Math.hypot(c.x - o.x, c.y - o.y); if (d < md) md = d; });
+    if (md > bestScore) { bestScore = md; best = id; }
+  });
+  const c = slotCoordById(best, g);
+  return { left: fr.left + c.x - cw / 2, top: fr.top + c.y - chh / 2, width: cw, height: chh };
 }
 
 /* 바닥패 배치: 중앙 덱을 중심으로 한 원형 슬롯에 배치.
@@ -1163,18 +1189,29 @@ function animateTurn(s, lp, mine) {
   const toStrip = lp.by === App.myIdx ? '#myCap' : '#oppCap';
   const persistent = []; // 쓸어담을 오버레이 {el, x, y, w, h}
 
+  // 쪽: 짝 없는 패를 냈는데 더미가 그 패와 맞아 둘 다 먹음
+  // → 낸 패를 바닥에 깔고, 더미 깐 패가 그 위로 얹히게 (엔진이 둘 다 hcap에 넣어 deckCaptured=false라 이벤트로 감지)
+  const isJjok = !!(s.events && s.events.includes('쪽') && lp.hand && lp.deck);
+  const jjokTgt = isJjok ? freeFloorSlotScreen() : null;
+
   lockInput(true);
 
   // 1) 손패 → 바닥(맞는 패 위에 촥) — 더미패 치기(lp.hand 없음)면 생략
   if (lp.hand) {
-    const handTgt = flyTarget(lp.hand);
+    const handTgt = isJjok ? jjokTgt : flyTarget(lp.hand);
     const handSrc = (mine && App._playSrcRect) ? App._playSrcRect : handAreaSrc(lp.by);
     App._playSrcRect = null;
     window.SFX && SFX.slap();
     if (lc && lc.handCaptured) {
-      const off = pairOffset(handTgt, 8);  // 맞는 패 위에 비스듬히 겹침
-      const el = flyCard(handSrc, off, lp.hand, dur, { persist: true, landRot: 8 });
-      if (el) { el.style.zIndex = '22'; persistent.push(rectObj(el, off)); } // 먹힌 바닥패 위로
+      if (isJjok) {
+        // 쪽: 낸 패를 바닥 빈 슬롯에 깔기
+        const el = flyCard(handSrc, jjokTgt, lp.hand, dur, { persist: true, landRot: 5 });
+        if (el) { el.style.zIndex = '20'; persistent.push(rectObj(el, jjokTgt)); }
+      } else {
+        const off = pairOffset(handTgt, 8);  // 맞는 패 위에 비스듬히 겹침
+        const el = flyCard(handSrc, off, lp.hand, dur, { persist: true, landRot: 8 });
+        if (el) { el.style.zIndex = '22'; persistent.push(rectObj(el, off)); } // 먹힌 바닥패 위로
+      }
     } else {
       flyCard(handSrc, handTgt, lp.hand, dur); // 못 먹으면 바닥에 깔림(자동 제거)
     }
@@ -1190,11 +1227,11 @@ function animateTurn(s, lp, mine) {
   if (lp.deck) {
     setTimeout(() => {
       window.SFX && SFX.flip();
-      const deckTgt = flyTarget(lp.deck);
-      if (lc && lc.deckCaptured) {
-        const off = pairOffset(deckTgt, -7); // 비스듬히 겹침(반대 방향)
-        const el = flyDeck(deckSrc(), off, lp.deck, dur, { persist: true, landRot: -7 });
-        if (el) { el.style.zIndex = '22'; persistent.push(rectObj(el, off)); } // 먹힌 바닥패 위로
+      const deckTgt = isJjok ? jjokTgt : flyTarget(lp.deck);
+      if ((lc && lc.deckCaptured) || isJjok) {
+        const off = pairOffset(deckTgt, -7); // 비스듬히 겹침(반대 방향) — 쪽이면 낸 패 위로
+        const el = flyDeck(deckSrc(), off, lp.deck, dur, { persist: true, landRot: -6 });
+        if (el) { el.style.zIndex = isJjok ? '24' : '22'; persistent.push(rectObj(el, off)); } // 쪽: 낸 패(20) 위로
       } else {
         flyDeck(deckSrc(), deckTgt, lp.deck, dur); // 바닥에 떨어져 깔림
       }
@@ -1514,7 +1551,7 @@ function initDev() {
     '흔들기': () => devStart(s => { s.players[0].hand = [C('m5_0'), C('m5_1'), C('m5_2'), C('m7_0')]; s.floor = [C('m1_0'), C('m2_0')]; s.deck = [C('m8_0'), C('m8_1')]; }, '5월(난초)을 내세요 → 흔들기(×2, 이기면 점수 2배)'),
     '국진선택': () => devStart(s => { s.players[0].hand = [C('m9_0'), C('m1_0')]; s.floor = [C('m9_1'), C('m2_0')]; s.deck = [C('m8_0')]; }, '국진(술잔=9월)을 내세요 → 먹는 순간 열끗/쌍피 선택'),
     '마지막판쓸이': () => devStart(s => { s.players[0].hand = [C('m5_0')]; s.floor = [C('m5_1'), C('m8_1')]; s.deck = [C('m8_0')]; }, '마지막 5월을 내세요 → 판쓸이지만 피 안 뺏김(상대 피 변화X 확인)'),
-    '폭탄빚(더미패)': () => devStart(s => { s.players[0].hand = []; s.players[0].deckDebt = 2; s.floor = [C('m5_1')]; s.deck = [C('m5_2'), C('m8_0'), C('m8_1')]; }, '💣 더미패 카드를 누르세요 → 덱에서 까서 침'),
+    '폭탄빚(더미패)': () => devStart(s => { s.players[0].hand = [C('m7_0')]; s.players[0].deckDebt = 2; s.floor = [C('m5_1')]; s.deck = [C('m5_2'), C('m8_0'), C('m8_1')]; }, '손패가 있어도 💣 더미패를 골라 쓸 수 있음'),
     '패배결과': () => devStart(s => { s.phase = 'ended'; s.winner = 1; s.result = { winner: 1, base: 7, withGo: 8, multiplier: 2, final: 16, goCount: 1, goBak: false, flags: ['1고', '피박'] }; s.players[1].name = 'AI'; s.players[1].captured = [C('m1_0'), C('m3_0'), C('m8_0'), C('m1_2')]; }, '패배 결과 팝업(점당 100원 드립) 확인'),
   };
 

@@ -77,6 +77,29 @@ button.link{background:none;border:none;color:#cfe6db;font-size:13px;cursor:poin
 .room-code{font-size:44px;font-weight:900;letter-spacing:10px;color:var(--gold);margin:8px 0;}
 .muted{color:#cfe6db;font-size:13px;}
 
+/* ---------- 메인(로비) 깔끔한 단색 ---------- */
+.lobby{background:#191f1c;}                       /* 솔리드 — 펠트/노이즈 가림 */
+.lobby .lobby-card{background:#222a26;border:1px solid rgba(255,255,255,.07);
+  border-radius:16px;box-shadow:0 12px 40px rgba(0,0,0,.4);backdrop-filter:none;padding:26px 22px;gap:16px;}
+.lobby .brand{display:block;border-left:4px solid var(--tomato);padding-left:13px;margin-bottom:2px;}
+.lobby .brand h1{margin:0;font-size:27px;font-weight:800;letter-spacing:-.5px;color:#fff;}
+.lobby .tagline{margin:3px 0 0;font-size:13px;color:#8a9a92;}
+.lobby .field span,.lobby .seg-label{color:#8a9a92;}
+.lobby .field input,.lobby .join-row input{background:#171d1a;color:#fff;border:1px solid rgba(255,255,255,.13);}
+.lobby .field input::placeholder,.lobby .join-row input::placeholder{color:#5c6a63;}
+.lobby .seg-btns button{background:transparent;border:1px solid rgba(255,255,255,.13);color:#c5d0ca;}
+.lobby .seg-btns button.on{background:var(--tomato);border-color:var(--tomato);color:#fff;}
+.lobby button.primary{background:var(--tomato);box-shadow:none;border-radius:12px;font-weight:800;}
+.lobby button.primary:hover{background:#cf3328;}
+.lobby button.ghost{background:transparent;border:1.5px solid rgba(255,255,255,.18);border-radius:12px;color:#e8efeb;}
+.lobby button.ghost:hover{border-color:rgba(255,255,255,.4);background:rgba(255,255,255,.04);}
+.lobby .divider{color:#6a7972;}
+.lobby .divider::before,.lobby .divider::after{background:rgba(255,255,255,.1);}
+.lobby button.link{color:#8a9a92;text-decoration:none;}
+.lobby button.link:hover{color:#c5d0ca;}
+.lobby .help{background:#171d1a;color:#d6ded9;}
+.lobby .credit{color:rgba(255,255,255,.28);}
+
 /* ---------- 선(先) 정하기 ---------- */
 .firstpick{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:18px;}
 .firstpick .lobby-card{width:min(560px,100%);}

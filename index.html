@@ -4,8 +4,8 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 <title>토마토 맞고 — Tomato Matgo</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🍅%3C/text%3E%3C/svg%3E" />
-<link rel="stylesheet" href="css/style.css?v=40" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='24' fill='%23e23b2e'/%3E%3C/svg%3E" />
+<link rel="stylesheet" href="css/style.css?v=45" />
 </head>
 <body>
 <div id="app">
@@ -14,11 +14,8 @@
   <section id="lobby" class="lobby">
     <div class="lobby-card">
       <div class="brand">
-        <div class="brand-mark">🍅</div>
-        <div>
-          <h1>토마토 맞고</h1>
-          <p class="tagline">화투 한 판, 고냐 스톱이냐</p>
-        </div>
+        <h1>토마토 맞고</h1>
+        <p class="tagline">화투 2인 고스톱</p>
       </div>
 
       <label class="field">
@@ -35,20 +32,20 @@
         </div>
       </div>
 
-      <button id="btnSingle" class="primary big">🤖 혼자 하기 — AI와 1:1</button>
+      <button id="btnSingle" class="primary big">혼자 하기</button>
 
       <div class="divider"><span>온라인 대전</span></div>
 
-      <button id="btnHost" class="ghost">🎮 방 만들기 — 친구 초대</button>
+      <button id="btnHost" class="ghost">방 만들기</button>
       <div class="join-row">
         <input id="joinCode" type="text" inputmode="numeric" maxlength="6" placeholder="초대 코드 6자리" />
         <button id="btnJoin" class="ghost">입장</button>
       </div>
 
-      <button id="btnHelp" class="link">규칙 보기 ▾</button>
+      <button id="btnHelp" class="link">규칙 보기</button>
       <div id="help" class="help" hidden></div>
     </div>
-    <p class="credit">Tomato Arcade · 서버 없는 P2P 대전</p>
+    <p class="credit">Tomato Arcade</p>
   </section>
 
   <!-- ===== 대기방(호스트) ===== -->
@@ -148,13 +145,13 @@
 </div>
 
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
-<script src="js/sfx.js?v=40"></script>
-<script src="js/cards.js?v=40"></script>
-<script src="js/rules.js?v=40"></script>
-<script src="js/engine.js?v=40"></script>
-<script src="js/ai.js?v=40"></script>
-<script src="js/net.js?v=40"></script>
-<script src="js/main.js?v=40"></script>
+<script src="js/sfx.js?v=45"></script>
+<script src="js/cards.js?v=45"></script>
+<script src="js/rules.js?v=45"></script>
+<script src="js/engine.js?v=45"></script>
+<script src="js/ai.js?v=45"></script>
+<script src="js/net.js?v=45"></script>
+<script src="js/main.js?v=45"></script>
 </body>
 </html>
 
