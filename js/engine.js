@@ -272,6 +272,8 @@ function finalizeTurn(state) {
     handCaptured: ctx.hcap.length > 0,
     deckCaptured: ctx.dcap.length > 0,
     floorCards: cap.filter(c => c !== ctx.h && c !== ctx.d),
+    handFloorCards: ctx.hcap.filter(c => c !== ctx.h && c !== ctx.d), // 손패가 먹은 바닥패(즉시 움찔)
+    deckFloorCards: ctx.dcap.filter(c => c !== ctx.h && c !== ctx.d), // 덱이 먹은 바닥패(덱 까질 때 움찔)
     allIds: cap.map(c => c.id),
     stolen: stolenCards,                  // 상대에게서 뺏어온 피(연출용)
     stolenIds: stolenCards.map(c => c.id),

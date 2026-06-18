@@ -96,12 +96,19 @@ function applyCoffeeUI() {
   const chat = $('#chat'); if (chat) chat.classList.toggle('half', coffee);
   const note = $('#coffeeNote'); if (note) note.hidden = !coffee;
 }
-/* 고 단계별 커피 메뉴 */
+/* 고 단계별 커피(아메리카노 사이즈) */
 function coffeeReward(n) {
-  if (n >= 4) return '☕ 모든 메뉴 🎉';
-  if (n === 3) return 'VENTI';
-  if (n === 2) return 'GRANDE';
-  return '아이스 아메리카노';
+  if (n >= 4) return '메뉴 아무거나! 🍰';
+  if (n === 3) return '벤티(Venti) 아메리카노';
+  if (n === 2) return '그란데(Grande) 아메리카노';
+  return '톨(Tall) 아이스 아메리카노';
+}
+/* 사이즈가 뭔지 한 줄 설명(그란데/벤티가 뭔지 모르는 사람용) */
+function coffeeSizeHint(n) {
+  if (n >= 4) return '제일 비싼 거 시켜도 됨 😏';
+  if (n === 3) return '벤티 = 스벅 제일 큰 컵(591ml)';
+  if (n === 2) return '그란데 = 큰 컵(473ml)';
+  return '톨 = 기본 컵(355ml)';
 }
 
 /* ---------------- 공개 방 목록(Firebase) ---------------- */
@@ -650,7 +657,7 @@ function showResult(result) {
     const moneyJab = iWon ? '' : `<div class="money-jab">💸 이게 <b>점당 100원</b>짜리 판이었다면<br>당신은 방금 <b class="lost-amount">${lostWon}원</b>을 잃었습니다.<br><span class="kkk">ㅋㅋㅋ</span></div>`;
     // 커피 내기: 어디서 스톱했는지 + 메뉴 (양쪽 다 보임)
     const coffeeResult = App._coffee
-      ? `<div class="coffee-result">☕ ${result.goCount > 0 ? `<b>${result.goCount}고</b>에서 스톱` : '스톱(7점)'} → <b class="cr-menu">${coffeeReward(result.goCount)}</b><div class="cr-who">${iWon ? '상대가 사는 거예요 😋' : '내가 사야 해요… 😭'}</div></div>`
+      ? `<div class="coffee-result">☕ ${result.goCount > 0 ? `<b>${result.goCount}고</b>에서 스톱` : '스톱(7점)'} → <b class="cr-menu">${coffeeReward(result.goCount)}</b><div class="cr-hint">${coffeeSizeHint(result.goCount)}</div><div class="cr-who">${iWon ? '상대가 사는 거예요 😋' : '내가 사야 해요… 😭'}</div></div>`
       : '';
     box.innerHTML = `
       <h2>${iWon ? '🎉 승리!' : '😢 패배'}</h2>
@@ -1234,8 +1241,8 @@ function freeFloorSlotScreen() {
   const cw = (cardEl && cardEl.offsetWidth) || 64, chh = (cardEl && cardEl.offsetHeight) || 105;
   const W = fl.clientWidth || 500, H = fl.clientHeight || 280;
   const g = floorGeom(W, H, cw, chh);
-  const ex = cw * 1.05, ey = chh * 0.95;
-  const outDeck = (id) => { const c = slotCoordById(id, g); const dx = c.x - g.cx, dy = c.y - g.cy; return (dx * dx) / (ex * ex) + (dy * dy) / (ey * ey) >= 1; };
+  // 덱 카드(가로 cw·세로 chh)와 안 겹치는 슬롯만: 가로로 cw 이상 OR 세로로 chh 이상 떨어진 곳
+  const outDeck = (id) => { const c = slotCoordById(id, g); return Math.abs(c.x - g.cx) >= cw * 1.05 || Math.abs(c.y - g.cy) >= chh * 1.02; };
   const cand = [];
   for (let k = 0; k < 14; k++) { if (outDeck('A' + k)) cand.push('A' + k); }
   for (let k = 0; k < 8; k++) { if (outDeck('B' + k)) cand.push('B' + k); }
@@ -1264,10 +1271,8 @@ function scatterFloor() {
   const W = fl.clientWidth || 500, H = fl.clientHeight || 280;
   const cw = cards[0].offsetWidth || 64, chh = cards[0].offsetHeight || 105;
   const g = floorGeom(W, H, cw, chh);
-  const ex = cw * 1.05, ey = chh * 0.95; // 중앙 덱 회피 타원
-
-  // 후보 슬롯 id: 덱 회피 타원 밖의 바깥 14 + 안쪽 8 (덱 위/아래 슬롯 충돌 방지)
-  const outDeck = (id) => { const c = slotCoordById(id, g); const dx = c.x - g.cx, dy = c.y - g.cy; return (dx * dx) / (ex * ex) + (dy * dy) / (ey * ey) >= 1; };
+  // 후보 슬롯: 덱 카드(가로 cw·세로 chh)와 안 겹치는 곳만(가로 cw 이상 OR 세로 chh 이상)
+  const outDeck = (id) => { const c = slotCoordById(id, g); return Math.abs(c.x - g.cx) >= cw * 1.05 || Math.abs(c.y - g.cy) >= chh * 1.02; };
   const cand = [];
   for (let k = 0; k < 14; k++) { if (outDeck('A' + k)) cand.push('A' + k); }
   for (let k = 0; k < 8; k++) { if (outDeck('B' + k)) cand.push('B' + k); }
@@ -1402,7 +1407,7 @@ function applyJuice(ev) {
   const pg = App._go || [0, 0];
   for (let i = 0; i < 2; i++) {
     if (go[i] > pg[i]) {
-      const tag = go[i] + '고' + (App._coffee ? `<span class="cut-coffee">☕ ${coffeeReward(go[i])}</span>` : '');
+      const tag = go[i] + '고' + (App._coffee ? `<span class="cut-coffee">☕ ${coffeeReward(go[i])}<span class="cut-hint">${coffeeSizeHint(go[i])}</span></span>` : '');
       showBigCut(tag); window.SFX && SFX.go();
     }
   }
@@ -1474,8 +1479,8 @@ function animateTurn(s, lp, mine) {
     App._playSrcRect = null;
   }
 
-  // 1b) 바닥에서 먹힌 패들: 제자리에 오버레이로 띄워 보여줌(쓸어담기 대상)
-  if (lc) addFloorOverlays(lc, persistent);
+  // 1b) 손패가 먹은 바닥패만 즉시 움찔(덱이 먹을 바닥패는 아직 안 건드림)
+  if (lc) addFloorOverlays(lc.handFloorCards || lc.floorCards, persistent);
 
   // 2) 더미 패: 떠올라 공개 → 바닥에 떨어짐
   let deckLand = dur;
@@ -1491,6 +1496,10 @@ function animateTurn(s, lp, mine) {
         flyDeck(deckSrc(), deckTgt, lp.deck, dur); // 바닥에 떨어져 깔림
       }
     }, deckDelay);
+    // 덱이 먹은 바닥패는 덱 카드가 착지할 때 움찔(미리 움찔 방지)
+    if (lc && lc.deckFloorCards && lc.deckFloorCards.length) {
+      setTimeout(() => addFloorOverlays(lc.deckFloorCards, persistent), deckDelay + Math.round((dur + 300) * 0.84));
+    }
     deckLand = deckDelay + dur + deckExtra + 120;
   }
 
@@ -1508,11 +1517,11 @@ function animateTurn(s, lp, mine) {
   return sweepStart; // 이벤트 토스트는 정산 보인 시점에
 }
 
-/* 바닥에서 먹힌 패들을 제자리에 오버레이로 띄움(쓸어담기 대상) */
-function addFloorOverlays(lc, persistent) {
+/* 바닥에서 먹힌 패들을 제자리에 오버레이로 띄움(움찔→쓸어담기 대상) */
+function addFloorOverlays(cards, persistent) {
   const pf = App._prevFloorRects || {};
   const fpos = App._floorPos || {};
-  (lc.floorCards || []).forEach(card => {
+  (cards || []).forEach(card => {
     const r = pf[card.id];
     if (!r) return; // 위치 모르면 생략(스트립에서 그냥 나타남)
     const rot = fpos[card.id] ? fpos[card.id].rot : 0; // 바닥에 놓였던 각도 유지
@@ -1699,8 +1708,7 @@ function flyTarget(card) {
   if (pf['M' + card.month]) return pf['M' + card.month];            // 매칭된 바닥 패 자리
   const el = $('#floor').querySelector(`.card[data-card-id="${card.id}"]`); // 그냥 깔린 자리
   if (el) return el.getBoundingClientRect();
-  const fr = $('#floor').getBoundingClientRect();
-  return { left: fr.left + fr.width / 2 - 32, top: fr.top + fr.height / 2 - 52, width: 64, height: 105 };
+  return freeFloorSlotScreen(); // 못 찾으면 덱 중앙 대신 빈 슬롯으로(덱 위로 던져지는 것 방지)
 }
 function flyCard(src, tgt, card, dur, opts) {
   if (!src || !tgt) return null;
