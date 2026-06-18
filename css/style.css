@@ -234,14 +234,19 @@ button.link{background:none;border:none;color:#cfe6db;font-size:13px;cursor:poin
 .card.kukjin-toggle{cursor:pointer;}
 .card.kukjin-toggle:hover{filter:brightness(1.2);}
 /* 흔든 패 공개 (우측 이벤트 영역) */
-.shake-zone{display:flex;flex-direction:column;gap:6px;margin-top:8px;align-items:center;width:100%;}
-.shake-row{background:rgba(0,0,0,.32);border:1px solid rgba(232,176,74,.45);border-radius:10px;
-  padding:4px 5px 5px;display:flex;flex-direction:column;align-items:center;gap:2px;}
-.shake-row.me{border-color:rgba(255,120,90,.65);}
-.shake-lab{font-size:10px;font-weight:800;color:var(--gold);white-space:nowrap;}
+/* 흔들기 공개: 좌측 전체 높이 — 상대=위쪽, 나=아래쪽(가운데 토스트와 안 겹침) */
+.shake-zone{position:absolute;left:14px;top:0;bottom:0;width:min(22%,236px);
+  display:flex;flex-direction:column;justify-content:space-between;
+  padding:66px 0;pointer-events:none;z-index:8;}
+.shk-grp{display:flex;flex-direction:column;gap:6px;align-items:flex-start;}
+.shk-grp.bot{margin-top:auto;}
+.shake-row{background:rgba(0,0,0,.36);border:1px solid rgba(232,176,74,.5);border-radius:10px;
+  padding:5px 7px 6px;display:flex;flex-direction:column;align-items:center;gap:3px;}
+.shake-row.me{border-color:rgba(255,120,90,.7);}
+.shake-lab{font-size:11px;font-weight:800;color:var(--gold);white-space:nowrap;}
 .shake-row.me .shake-lab{color:#ff9a7a;}
 .shake-cards{display:flex;}
-.shake-cards .card-sm{margin-left:-16px;box-shadow:none;}
+.shake-cards .card-sm{width:52px;height:85px;margin-left:-18px;box-shadow:0 2px 5px rgba(0,0,0,.4);}
 .shake-cards .card-sm:first-child{margin-left:0;}
 .cap-group .card-sm{margin-left:-24px;}
 .cap-group .card-sm:first-of-type{margin-left:0;}
@@ -261,8 +266,10 @@ button.link{background:none;border:none;color:#cfe6db;font-size:13px;cursor:poin
 
 .statusbar{position:absolute;bottom:2px;left:0;right:0;text-align:center;font-size:11.5px;color:#cfe6db;min-height:16px;line-height:1.3;}
 
-/* ---------- 이벤트 이펙트 (우측 중앙, 두 점수판 사이) ---------- */
-.event-zone{flex:1;position:relative;display:flex;align-items:center;justify-content:center;min-height:0;}
+/* ---------- 이벤트 이펙트 (좌측 빈 공간에 표시) ---------- */
+.event-zone{position:absolute;left:16px;top:50%;transform:translateY(-50%);
+  width:min(20%,220px);height:48%;display:flex;align-items:center;justify-content:center;
+  pointer-events:none;z-index:9;}
 .toast-wrap{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
   display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none;z-index:9;width:max-content;}
 .toast{
@@ -373,8 +380,8 @@ button.link{background:none;border:none;color:#cfe6db;font-size:13px;cursor:poin
 @keyframes jabIn{0%{transform:scale(.6) rotate(-4deg);opacity:0;}70%{transform:scale(1.08) rotate(2deg);}100%{transform:scale(1) rotate(0);opacity:1;}}
 @keyframes kkkWiggle{0%,100%{transform:rotate(-4deg);}50%{transform:rotate(4deg);}}
 
-/* 온라인 채팅 — 좌측 중앙 빈 공간(카드와 겹치지 않게) */
-.chat{position:absolute;left:10px;bottom:10px;width:200px;height:240px;max-height:80vh;z-index:40;
+/* 온라인 채팅 — 우측 두 아바타 사이에 도킹 */
+.chat{flex:1;min-height:0;width:100%;z-index:40;
   background:rgba(0,0,0,.45);border:1px solid rgba(255,255,255,.15);border-radius:12px;
   display:flex;flex-direction:column;backdrop-filter:blur(3px);box-shadow:0 6px 18px rgba(0,0,0,.4);overflow:hidden;}
 .chat-head{display:flex;align-items:center;justify-content:space-between;gap:6px;
@@ -383,11 +390,8 @@ button.link{background:none;border:none;color:#cfe6db;font-size:13px;cursor:poin
   width:22px;height:20px;border-radius:6px;cursor:pointer;flex:none;}
 .chat-toggle:hover{background:rgba(255,255,255,.22);}
 .chat-body{flex:1;display:flex;flex-direction:column;min-height:0;}
-.chat.collapsed{height:auto !important;}
-.chat.collapsed .chat-body,.chat.collapsed .chat-resize{display:none;}
-.chat-resize{position:absolute;right:0;bottom:0;width:16px;height:16px;cursor:nwse-resize;
-  background:linear-gradient(135deg,transparent 50%,rgba(255,255,255,.45) 50%,rgba(255,255,255,.45) 62%,transparent 62%,transparent 74%,rgba(255,255,255,.45) 74%,rgba(255,255,255,.45) 86%,transparent 86%);
-  border-bottom-right-radius:10px;}
+.chat.collapsed{flex:none !important;height:auto !important;}
+.chat.collapsed .chat-body{display:none;}
 .chat-msgs{flex:1;overflow-y:auto;padding:6px 8px;display:flex;flex-direction:column;gap:4px;min-height:40px;}
 .chat-msg{font-size:12px;color:#eaf2ee;line-height:1.35;word-break:break-word;}
 .chat-msg .nm{color:#9fd0ff;font-weight:700;margin-right:4px;}
@@ -396,7 +400,6 @@ button.link{background:none;border:none;color:#cfe6db;font-size:13px;cursor:poin
 .chat-input{display:flex;gap:4px;padding:6px;border-top:1px solid rgba(255,255,255,.1);}
 .chat-input input{flex:1;min-width:0;padding:6px 8px;border-radius:8px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.92);color:#111;font-size:13px;outline:none;}
 .chat-input button{padding:6px 10px;border:none;border-radius:8px;background:var(--tomato);color:#fff;font-weight:700;font-size:12px;cursor:pointer;white-space:nowrap;}
-@media (max-width:560px){ .chat{width:160px;left:6px;bottom:6px;} }
 
 /* 폭탄 버튼 */
 .bomb-btn{align-self:center;margin:0 auto 6px;background:linear-gradient(180deg,#ff5a4d,#c0271c);color:#fff;

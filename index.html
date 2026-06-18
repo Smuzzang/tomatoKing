@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 <title>토마토 맞고 — Tomato Matgo</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='24' fill='%23e23b2e'/%3E%3C/svg%3E" />
-<link rel="stylesheet" href="css/style.css?v=50" />
+<link rel="stylesheet" href="css/style.css?v=53" />
 </head>
 <body>
 <div id="app">
@@ -100,7 +100,7 @@
       <div class="hand" id="myHand"></div>
     </div>
 
-    <!-- 오른쪽: 점수판 + 이벤트 이펙트 -->
+    <!-- 오른쪽: 상대 아바타 → 채팅 → 내 아바타 -->
     <div class="col col-right">
       <div class="pinfo opp">
         <img class="pavatar" id="oppAvatar" alt="" src="img/avatar-opp.png" onerror="this.classList.add('noimg')" />
@@ -108,11 +108,22 @@
         <div class="pscore" id="oppScore">0점</div>
         <span class="go-badge" id="oppGo" hidden></span>
       </div>
-      <div class="event-zone">
-        <div class="toast-wrap" id="toasts"></div>
-        <div class="statusbar" id="statusbar"></div>
-        <div class="shake-zone" id="shakeZone"></div>
+
+      <!-- 캐릭터 사이: 온라인 채팅 (온라인 대전에서만) -->
+      <div id="chat" class="chat" hidden>
+        <div class="chat-head">
+          <span class="chat-title">💬 채팅</span>
+          <button id="chatToggle" class="chat-toggle" type="button" title="접기/펼치기">▾</button>
+        </div>
+        <div class="chat-body">
+          <div class="chat-msgs" id="chatMsgs"></div>
+          <div class="chat-input">
+            <input id="chatText" type="text" maxlength="60" placeholder="메시지 입력…" autocomplete="off" />
+            <button id="chatSend">전송</button>
+          </div>
+        </div>
       </div>
+
       <div class="pinfo me">
         <img class="pavatar" id="myAvatar" alt="" src="img/avatar-me.png" onerror="this.classList.add('noimg')" />
         <div class="pname" id="myName">나</div>
@@ -121,21 +132,13 @@
       </div>
     </div>
 
-    <!-- 온라인 채팅 (좌하단, 온라인 대전에서만) -->
-    <div id="chat" class="chat" hidden>
-      <div class="chat-head">
-        <span class="chat-title">💬 채팅</span>
-        <button id="chatToggle" class="chat-toggle" type="button" title="접기/펼치기">▾</button>
-      </div>
-      <div class="chat-body">
-        <div class="chat-msgs" id="chatMsgs"></div>
-        <div class="chat-input">
-          <input id="chatText" type="text" maxlength="60" placeholder="메시지 입력…" autocomplete="off" />
-          <button id="chatSend">전송</button>
-        </div>
-      </div>
-      <div id="chatResize" class="chat-resize" title="크기 조절"></div>
+    <!-- 좌측 중앙: 이벤트 이펙트 (쪽·싹쓸이·피 등) -->
+    <div class="event-zone" id="eventZone">
+      <div class="toast-wrap" id="toasts"></div>
+      <div class="statusbar" id="statusbar"></div>
     </div>
+    <!-- 좌측: 흔들기 공개 (상대=위쪽 / 나=아래쪽) -->
+    <div class="shake-zone" id="shakeZone"></div>
   </section>
 
   <!-- 큰 금박 컷 (N고 / 피박 등) -->
@@ -157,14 +160,14 @@
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-database-compat.js"></script>
-<script src="js/rooms.js?v=50"></script>
-<script src="js/sfx.js?v=50"></script>
-<script src="js/cards.js?v=50"></script>
-<script src="js/rules.js?v=50"></script>
-<script src="js/engine.js?v=50"></script>
-<script src="js/ai.js?v=50"></script>
-<script src="js/net.js?v=50"></script>
-<script src="js/main.js?v=50"></script>
+<script src="js/rooms.js?v=53"></script>
+<script src="js/sfx.js?v=53"></script>
+<script src="js/cards.js?v=53"></script>
+<script src="js/rules.js?v=53"></script>
+<script src="js/engine.js?v=53"></script>
+<script src="js/ai.js?v=53"></script>
+<script src="js/net.js?v=53"></script>
+<script src="js/main.js?v=53"></script>
 </body>
 </html>
 

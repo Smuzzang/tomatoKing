@@ -63,85 +63,21 @@ function initLobby() {
     }, 100);
   });
 
-  makeChatDraggable(); // 채팅창 헤더 잡고 자유 이동
+  initChat(); // 도킹 채팅: 접기/펼치기 토글
 }
 
-/* 채팅창: 헤더 잡고 이동 + 접기/펼치기 + 우하단 크기조절 */
-function makeChatDraggable() {
-  const chat = $('#chat'), head = chat && chat.querySelector('.chat-head');
-  if (!head) return;
-  const title = head.querySelector('.chat-title') || head;
-  title.style.cursor = 'move';
-  head.style.userSelect = 'none';
-  title.title = '드래그해서 옮기기';
-
-  // 위치 고정(드래그 시작): bottom 앵커 → top 앵커로 전환
-  function anchorTopLeft() {
-    const r = chat.getBoundingClientRect();
-    chat.style.left = r.left + 'px';
-    chat.style.top = r.top + 'px';
-    chat.style.bottom = 'auto';
-    chat.style.right = 'auto';
-    return r;
-  }
-
-  // ── 이동(헤더 드래그) ──
-  let drag = null;
-  head.addEventListener('pointerdown', e => {
-    if (e.target.closest('.chat-toggle')) return; // 접기 버튼은 제외
-    const r = anchorTopLeft();
-    drag = { dx: e.clientX - r.left, dy: e.clientY - r.top };
-    try { head.setPointerCapture(e.pointerId); } catch (_) {}
-    e.preventDefault();
-  });
-  head.addEventListener('pointermove', e => {
-    if (!drag) return;
-    const w = chat.offsetWidth, h = chat.offsetHeight;
-    chat.style.left = Math.max(0, Math.min(innerWidth - w, e.clientX - drag.dx)) + 'px';
-    chat.style.top = Math.max(0, Math.min(innerHeight - h, e.clientY - drag.dy)) + 'px';
-  });
-  const endDrag = e => { if (drag) { drag = null; try { head.releasePointerCapture(e.pointerId); } catch (_) {} } };
-  head.addEventListener('pointerup', endDrag);
-  head.addEventListener('pointercancel', endDrag);
-
-  // ── 접기/펼치기 ──
+/* 채팅창(도킹): 접기/펼치기만 */
+function initChat() {
+  const chat = $('#chat'); if (!chat) return;
   const toggle = $('#chatToggle');
   if (toggle) toggle.addEventListener('click', () => {
     const collapsed = chat.classList.toggle('collapsed');
     toggle.textContent = collapsed ? '▸' : '▾';
     toggle.title = collapsed ? '펼치기' : '접기';
   });
-
-  // ── 크기 조절(우하단 그립) ──
-  const grip = $('#chatResize');
-  if (grip) {
-    let rz = null;
-    grip.addEventListener('pointerdown', e => {
-      const r = anchorTopLeft();           // 좌상단 기준으로 고정 후 크기 변경
-      rz = { left: r.left, top: r.top };
-      try { grip.setPointerCapture(e.pointerId); } catch (_) {}
-      e.preventDefault(); e.stopPropagation();
-    });
-    grip.addEventListener('pointermove', e => {
-      if (!rz) return;
-      const w = Math.max(150, Math.min(innerWidth * 0.7, e.clientX - rz.left));
-      const h = Math.max(110, Math.min(innerHeight * 0.85, e.clientY - rz.top));
-      chat.style.width = w + 'px';
-      chat.style.height = h + 'px';
-    });
-    const endRz = e => { if (rz) { rz = null; try { grip.releasePointerCapture(e.pointerId); } catch (_) {} } };
-    grip.addEventListener('pointerup', endRz);
-    grip.addEventListener('pointercancel', endRz);
-  }
 }
-/* 리사이즈 시 채팅창이 화면 밖으로 나가지 않게 보정 */
-function clampChat() {
-  const chat = $('#chat'); if (!chat || chat.hidden || chat.style.left === '') return;
-  const w = chat.offsetWidth, h = chat.offsetHeight;
-  const x = Math.max(0, Math.min(innerWidth - w, parseFloat(chat.style.left) || 0));
-  const y = Math.max(0, Math.min(innerHeight - h, parseFloat(chat.style.top) || 0));
-  chat.style.left = x + 'px'; chat.style.top = y + 'px';
-}
+/* (도킹 후 위치 보정 불필요 — 호환용 no-op) */
+function clampChat() {}
 
 function nickname() {
   const n = ($('#nickname').value || '').trim() || '플레이어';
@@ -1134,10 +1070,12 @@ function freeFloorSlotScreen() {
   const cw = (cardEl && cardEl.offsetWidth) || 64, chh = (cardEl && cardEl.offsetHeight) || 105;
   const W = fl.clientWidth || 500, H = fl.clientHeight || 280;
   const g = floorGeom(W, H, cw, chh);
-  const ex = cw * 1.05, ey = chh * 0.9;
+  const ex = cw * 1.05, ey = chh * 0.95;
+  const outDeck = (id) => { const c = slotCoordById(id, g); const dx = c.x - g.cx, dy = c.y - g.cy; return (dx * dx) / (ex * ex) + (dy * dy) / (ey * ey) >= 1; };
   const cand = [];
-  for (let k = 0; k < 14; k++) cand.push('A' + k);
-  for (let k = 0; k < 8; k++) { const c = slotCoordById('B' + k, g); const dx = c.x - g.cx, dy = c.y - g.cy; if ((dx * dx) / (ex * ex) + (dy * dy) / (ey * ey) >= 1) cand.push('B' + k); }
+  for (let k = 0; k < 14; k++) { if (outDeck('A' + k)) cand.push('A' + k); }
+  for (let k = 0; k < 8; k++) { if (outDeck('B' + k)) cand.push('B' + k); }
+  if (!cand.length) for (let k = 0; k < 14; k++) cand.push('A' + k); // 안전망
   const used = Object.values(App._monthSlot || {});
   const occ = used.map(id => slotCoordById(id, g));
   let best = cand[0], bestScore = -1;
@@ -1162,12 +1100,14 @@ function scatterFloor() {
   const W = fl.clientWidth || 500, H = fl.clientHeight || 280;
   const cw = cards[0].offsetWidth || 64, chh = cards[0].offsetHeight || 105;
   const g = floorGeom(W, H, cw, chh);
-  const ex = cw * 1.05, ey = chh * 0.9; // 중앙 덱 회피 타원
+  const ex = cw * 1.05, ey = chh * 0.95; // 중앙 덱 회피 타원
 
-  // 후보 슬롯 id: 바깥 14 + (덱 회피 통과한) 안쪽 8
+  // 후보 슬롯 id: 덱 회피 타원 밖의 바깥 14 + 안쪽 8 (덱 위/아래 슬롯 충돌 방지)
+  const outDeck = (id) => { const c = slotCoordById(id, g); const dx = c.x - g.cx, dy = c.y - g.cy; return (dx * dx) / (ex * ex) + (dy * dy) / (ey * ey) >= 1; };
   const cand = [];
-  for (let k = 0; k < 14; k++) cand.push('A' + k);
-  for (let k = 0; k < 8; k++) { const c = slotCoordById('B' + k, g); const dx = c.x - g.cx, dy = c.y - g.cy; if ((dx * dx) / (ex * ex) + (dy * dy) / (ey * ey) >= 1) cand.push('B' + k); }
+  for (let k = 0; k < 14; k++) { if (outDeck('A' + k)) cand.push('A' + k); }
+  for (let k = 0; k < 8; k++) { if (outDeck('B' + k)) cand.push('B' + k); }
+  if (!cand.length) for (let k = 0; k < 14; k++) cand.push('A' + k); // 안전망
 
   // 월별로 그룹화
   const byMonth = {};
@@ -1251,18 +1191,22 @@ function renderCaptured(container, cardsRaw, mine) {
 function renderShakes(s) {
   const z = $('#shakeZone'); if (!z) return;
   z.innerHTML = '';
-  [1 - App.myIdx, App.myIdx].forEach(i => { // 상대 먼저(위), 나중(아래)
+  const top = document.createElement('div'); top.className = 'shk-grp top'; // 상대 흔들기(위)
+  const bot = document.createElement('div'); bot.className = 'shk-grp bot'; // 내 흔들기(아래)
+  z.appendChild(top); z.appendChild(bot);
+  [0, 1].forEach(i => {
     const p = s.players[i];
+    const mine = i === App.myIdx;
     (p.shaken || []).forEach(sh => {
       const row = document.createElement('div');
-      row.className = 'shake-row' + (i === App.myIdx ? ' me' : ' opp');
+      row.className = 'shake-row' + (mine ? ' me' : ' opp');
       const lab = document.createElement('span'); lab.className = 'shake-lab';
-      lab.textContent = (i === App.myIdx ? '🃏 내 흔들기' : '🃏 상대 흔들기');
+      lab.textContent = (mine ? '🃏 내 흔들기' : '🃏 상대 흔들기');
       row.appendChild(lab);
       const cw = document.createElement('div'); cw.className = 'shake-cards';
       sh.cards.forEach(c => cw.appendChild(window.Hwatu.makeCardEl(c, { faceUp: true, small: true })));
       row.appendChild(cw);
-      z.appendChild(row);
+      (mine ? bot : top).appendChild(row); // 흔든 쪽으로: 나=아래, 상대=위
     });
   });
 }
