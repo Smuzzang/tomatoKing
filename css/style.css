@@ -446,7 +446,7 @@ button.link{background:none;border:none;color:#cfe6db;font-size:13px;cursor:poin
 @keyframes timerPulse{0%,100%{transform:translateX(-50%) scale(1);}50%{transform:translateX(-50%) scale(1.18);}}
 
 /* 큰 금박 컷 (N고 / 피박 / 총통) */
-.bigcut{position:fixed;inset:0;z-index:17;display:flex;align-items:center;justify-content:center;pointer-events:none;}
+.bigcut{position:fixed;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;pointer-events:none;}
 .bigcut .cut{
   font-size:110px;font-weight:900;color:#ffd24a;letter-spacing:-2px;
   -webkit-text-stroke:6px #7a3a00;paint-order:stroke fill;
