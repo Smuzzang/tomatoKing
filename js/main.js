@@ -986,26 +986,115 @@ function manageTimer(s) {
   restartTimer(key);
 }
 function restartTimer(key) {
-  stopTimer();
   App._timerKey = key;
-  App._timerLeft = TURN_LIMIT;
-  renderTimer();
-  App._timerInt = setInterval(() => {
-    App._timerLeft--;
-    renderTimer();
-    if (App._timerLeft <= 0) { stopTimer(); autoAct(); }
-  }, 1000);
+  startBurnTimer(TURN_LIMIT); // 화투패가 타들어가는 연출
 }
 function stopTimer() {
-  if (App._timerInt) { clearInterval(App._timerInt); App._timerInt = null; }
   App._timerKey = null;
-  const el = $('#timer'); if (el) el.hidden = true;
+  stopBurnTimer();
 }
-function renderTimer() {
-  const el = $('#timer'); if (!el) return;
-  el.hidden = false;
-  el.textContent = App._timerLeft;
-  el.classList.toggle('urgent', App._timerLeft <= 5);
+
+/* ── 화투패 타들어가는 턴 타이머(좌측 중앙) ── */
+const BURN_TPL = `
+<svg viewBox="0 0 120 205" width="120" height="205" style="overflow:visible">
+  <defs>
+    <filter id="btRough" x="-30%" y="-30%" width="160%" height="160%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.016 0.04" numOctaves="3" seed="11" result="n"/>
+      <feDisplacementMap in="SourceGraphic" in2="n" scale="14" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+    <filter id="btEmber" x="-60%" y="-60%" width="220%" height="220%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.022 0.055" numOctaves="3" seed="4" result="n"/>
+      <feDisplacementMap in="SourceGraphic" in2="n" scale="12" xChannelSelector="R" yChannelSelector="G" result="d"/>
+      <feGaussianBlur in="d" stdDeviation="1.4"/>
+    </filter>
+    <linearGradient id="btFire" x1="0" y1="14" x2="0" y2="177" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffe79a"/><stop id="btFireMid" offset="0.5" stop-color="#ff7a1e"/><stop offset="1" stop-color="#7a1500"/>
+    </linearGradient>
+    <linearGradient id="btMg" x1="0" y1="14" x2="0" y2="177" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff"/><stop id="btMg1" offset="0.5" stop-color="#fff"/><stop id="btMg2" offset="0.52" stop-color="#000"/><stop offset="1" stop-color="#000"/>
+    </linearGradient>
+    <linearGradient id="btEg" x1="0" y1="14" x2="0" y2="177" gradientUnits="userSpaceOnUse">
+      <stop id="btEg0" offset="0.46" stop-color="#000"/><stop id="btEg1" offset="0.52" stop-color="#fff"/><stop id="btEg2" offset="0.58" stop-color="#000"/>
+    </linearGradient>
+    <linearGradient id="btCg" x1="0" y1="14" x2="0" y2="177" gradientUnits="userSpaceOnUse">
+      <stop id="btCg0" offset="0.40" stop-color="#000"/><stop id="btCg1" offset="0.49" stop-color="#fff"/><stop id="btCg2" offset="0.55" stop-color="#000"/>
+    </linearGradient>
+    <mask id="btBurnMask"><rect x="0" y="0" width="120" height="205" fill="url(#btMg)" filter="url(#btRough)"/></mask>
+    <mask id="btCharMask"><rect x="0" y="0" width="120" height="205" fill="url(#btCg)" filter="url(#btRough)"/></mask>
+    <mask id="btEmberMask"><rect x="0" y="0" width="120" height="205" fill="url(#btEg)" filter="url(#btEmber)"/></mask>
+  </defs>
+  <g mask="url(#btBurnMask)">
+    <image id="btImg" x="10" y="14" width="100" height="163" preserveAspectRatio="xMidYMid slice"/>
+    <rect x="10" y="14" width="100" height="163" rx="7" fill="none" stroke="rgba(0,0,0,.25)" stroke-width="1.5"/>
+  </g>
+  <rect x="10" y="14" width="100" height="163" fill="#23100a" mask="url(#btCharMask)" opacity="0.9"/>
+  <rect x="4" y="14" width="112" height="163" fill="url(#btFire)" mask="url(#btEmberMask)"/>
+  <g id="btFx"></g>
+</svg>
+<div id="burnNum" class="burn-num">20</div>`;
+
+function ensureBurnTimer() {
+  if ($('#burnTimer')) return;
+  const el = document.createElement('div');
+  el.id = 'burnTimer'; el.className = 'burn-timer'; el.hidden = true;
+  el.innerHTML = BURN_TPL;
+  $('#table').appendChild(el);
+}
+function randomCardImg() {
+  const m = 1 + (Math.random() * 12 | 0), i = 1 + (Math.random() * 4 | 0);
+  return `cards/${String(m).padStart(2, '0')}${i}.png`;
+}
+function setOff(sel, v) { const e = $(sel); if (e) e.setAttribute('offset', v); }
+function startBurnTimer(seconds) {
+  ensureBurnTimer();
+  const el = $('#burnTimer'); el.hidden = false; el.classList.remove('urgent');
+  const img = $('#btImg'); if (img) img.setAttribute('href', randomCardImg());
+  App._burnStart = performance.now();
+  App._burnDur = seconds * 1000;
+  App._burnLastSpark = 0;
+  cancelAnimationFrame(App._burnRAF);
+  App._burnRAF = requestAnimationFrame(burnTick);
+}
+function stopBurnTimer() {
+  cancelAnimationFrame(App._burnRAF); App._burnRAF = null;
+  const el = $('#burnTimer'); if (el) { el.hidden = true; const fx = $('#btFx'); if (fx) fx.innerHTML = ''; }
+}
+function burnSpark(yf, urgent) {
+  const fxg = $('#btFx'); if (!fxg) return;
+  const NS = 'http://www.w3.org/2000/svg';
+  const c = document.createElementNS(NS, 'circle');
+  const x = 18 + Math.random() * 84;
+  c.setAttribute('cx', x); c.setAttribute('cy', yf); c.setAttribute('r', 1 + Math.random() * 1.6);
+  c.setAttribute('fill', urgent ? '#ff4d1a' : '#ffd24d');
+  fxg.appendChild(c);
+  const dx = Math.random() * 18 - 9, life = 600 + Math.random() * 500, b = performance.now();
+  (function f(now) { const k = (now - b) / life; if (k >= 1) { c.remove(); return; } c.setAttribute('cx', x + dx * k); c.setAttribute('cy', yf - (38 * k + 6)); c.setAttribute('opacity', 1 - k); requestAnimationFrame(f); })(b);
+  if (Math.random() < 0.3) {
+    const sm = document.createElementNS(NS, 'circle');
+    sm.setAttribute('cx', x); sm.setAttribute('cy', yf - 4); sm.setAttribute('r', 4 + Math.random() * 4);
+    sm.setAttribute('fill', 'rgba(120,120,120,.28)');
+    fxg.appendChild(sm);
+    const sl = 1000 + Math.random() * 600, sb = performance.now(), r0 = parseFloat(sm.getAttribute('r'));
+    (function rise(now) { const k = (now - sb) / sl; if (k >= 1) { sm.remove(); return; } sm.setAttribute('cy', yf - 4 - 64 * k); sm.setAttribute('cx', x + Math.sin(k * 7) * 10); sm.setAttribute('r', r0 * (1 + k)); sm.setAttribute('opacity', 0.3 * (1 - k)); requestAnimationFrame(rise); })(sb);
+  }
+}
+function burnTick(now) {
+  const el = $('#burnTimer'); if (!el || el.hidden) return;
+  const p = Math.min(1, (now - App._burnStart) / App._burnDur);
+  const uf = 1 - p, cardTop = 14, cardH = 163;
+  const yf = cardTop + uf * cardH;
+  const rem = (1 - p) * (App._burnDur / 1000), urgent = rem <= 4;
+  setOff('#btMg1', Math.max(0, uf - 0.005)); setOff('#btMg2', Math.min(1, uf + 0.02));
+  setOff('#btEg0', Math.max(0, uf - 0.02)); setOff('#btEg1', Math.min(1, uf + 0.03)); setOff('#btEg2', Math.min(1, uf + 0.09));
+  setOff('#btCg0', Math.max(0, uf - 0.10)); setOff('#btCg1', Math.max(0, uf - 0.01)); setOff('#btCg2', Math.min(1, uf + 0.04));
+  const disp = document.querySelector('#btRough feDisplacementMap'); if (disp) disp.setAttribute('scale', (urgent ? 18 : 14) + Math.sin(now / 120) * 3);
+  const mid = $('#btFireMid'); if (mid) mid.setAttribute('stop-color', urgent ? '#ff3a0a' : '#ff7a1e');
+  const numEl = $('#burnNum');
+  if (numEl) { numEl.textContent = Math.ceil(rem); numEl.style.top = (yf / 2 - 16) + 'px'; numEl.style.color = urgent ? '#ff6a4a' : '#fff'; }
+  el.classList.toggle('urgent', urgent);
+  if (p < 1 && now - (App._burnLastSpark || 0) > (urgent ? 50 : 95)) { burnSpark(yf, urgent); App._burnLastSpark = now; }
+  if (p >= 1) { stopBurnTimer(); autoAct(); return; }
+  App._burnRAF = requestAnimationFrame(burnTick);
 }
 function autoAct() {
   const s = App.state; if (!s || s.turn !== App.myIdx) return;

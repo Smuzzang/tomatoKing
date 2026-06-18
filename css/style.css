@@ -248,6 +248,11 @@ button.link{background:none;border:none;color:#cfe6db;font-size:13px;cursor:poin
 .shake-cards{display:flex;}
 .shake-cards .card-sm{width:52px;height:85px;margin-left:-18px;box-shadow:0 2px 5px rgba(0,0,0,.4);}
 .shake-cards .card-sm:first-child{margin-left:0;}
+
+/* 화투패 타들어가는 턴 타이머 (좌측 중앙, 내 차례에만) */
+.burn-timer{position:absolute;left:22px;top:50%;transform:translateY(-50%);width:120px;height:205px;z-index:7;pointer-events:none;}
+.burn-timer.urgent{filter:drop-shadow(0 0 11px rgba(255,55,0,.65));}
+.burn-num{position:absolute;left:0;right:0;text-align:center;font-size:30px;font-weight:900;color:#fff;text-shadow:0 2px 6px rgba(0,0,0,.8);}
 .cap-group .card-sm{margin-left:-24px;}
 .cap-group .card-sm:first-of-type{margin-left:0;}
 .floor .card{width:var(--card-w);height:var(--card-h);}
