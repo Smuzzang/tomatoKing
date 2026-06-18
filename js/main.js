@@ -162,8 +162,9 @@ function startSingle() {
 /* 실제 딜링 (starter = 선) */
 function dealSingle(starter) {
   const seed = (Math.random() * 1e9) | 0;
+  const stake = nextStakeMult(); // 이전 판이 나가리였으면 누적 배수
   App.state = window.Engine.newGame({
-    seed, names: [App.nick, 'AI'], aiFlags: [false, true], mode: App.diff, starter: starter || 0,
+    seed, names: [App.nick, 'AI'], aiFlags: [false, true], mode: App.diff, starter: starter || 0, stakeMult: stake,
   });
   resetRoundState();
   clearFx();
@@ -176,6 +177,13 @@ function nextStarter() {
   if (!s || !s.result) return 0;
   if (s.result.draw) return (s.starter != null ? s.starter : 0);
   return s.result.winner;
+}
+/* 다음 판 나가리 누적 배수: 나가리면 ×2 누적, 승부 나면 1로 리셋 */
+function nextStakeMult() {
+  const s = App.state;
+  if (!s || !s.result) return 1;
+  if (s.result.draw) return (s.stakeMult || 1) * 2;
+  return 1;
 }
 
 /* 딜링 효과음 */
@@ -607,7 +615,9 @@ function showResult(result) {
       <button class="btn-home" id="mHome">${App.mode === 'single' ? '메인' : '게임방 나가기'}</button>
     </div>`;
   if (result.draw) {
-    box.innerHTML = `<h2>나가리 😶</h2><p class="muted">둘 다 점수를 못 냈어요</p>${actions}`;
+    const nm = nextStakeMult(); // 이번 나가리로 다음 판이 몇 배가 되는지
+    const accum = nm > 1 ? `<p class="nagari-accum">🔥 다음 판은 <b>${nm}배</b>!</p>` : '';
+    box.innerHTML = `<h2>나가리 😶</h2><p class="muted">둘 다 점수를 못 냈어요</p>${accum}${actions}`;
   } else {
     const iWon = result.winner === App.myIdx;
     const w = App.state.players[result.winner];
@@ -688,7 +698,8 @@ function hostStartGame(starter) {
   const names = App.state ? [App.state.players[0].name, App.state.players[1].name]
                           : [App.nick, App._guestName || '상대'];
   const seed = (Math.random() * 1e9) | 0;
-  App.state = window.Engine.newGame({ seed, names, aiFlags: [false, false], mode: 'classic', starter: starter || 0 });
+  const stake = nextStakeMult(); // 이전 판이 나가리였으면 누적 배수
+  App.state = window.Engine.newGame({ seed, names, aiFlags: [false, false], mode: 'classic', starter: starter || 0, stakeMult: stake });
   resetRoundState();
   clearFx();
   show('table'); dealTicks(); afterChange();
@@ -899,7 +910,9 @@ function render() {
   const mh = $('#myHand'); mh.innerHTML = '';
   // 연출(상대 회수·쓸어담기·피뺏기) 중에는 아직 못 냄 → 정리 끝나면 finishSweep가 다시 렌더
   const canPlay = myTurn && s.phase === 'await_play' && !App._animating;
-  me.hand.forEach(c => {
+  // 손패는 좌→우 월 오름차순 정렬(표시용)
+  const handSorted = [...me.hand].sort((a, b) => a.month - b.month || (a.id < b.id ? -1 : 1));
+  handSorted.forEach(c => {
     const el = window.Hwatu.makeCardEl(c, { faceUp: true });
     if (canPlay) {
       el.classList.add('playable');
@@ -961,8 +974,10 @@ function render() {
   const bombEl = $('#bombBtn');
   if (myTurn && s.phase === 'await_play') {
     const bombs = window.Engine.bombableMonths(s);
-    if (bombs.length) { bombEl.hidden = false; bombEl.dataset.month = bombs[0]; bombEl.textContent = `💣 ${bombs[0]}월 폭탄`; }
-    else bombEl.hidden = true;
+    if (bombs.length) {
+      bombEl.hidden = false; bombEl.dataset.month = bombs[0]; bombEl.textContent = `💣 ${bombs[0]}월 폭탄`;
+      positionBombBtn(bombEl, bombs[0]); // 폭탄 카드 바로 위에
+    } else bombEl.hidden = true;
   } else bombEl.hidden = true;
 
   // 첫 딜링: 카드 일제히 팝인
@@ -973,6 +988,24 @@ function render() {
   }
 
   manageTimer(s); // 20초 턴 제한
+}
+
+/* 폭탄 버튼을 폭탄 가능한 손패(같은 월) 바로 위 중앙에 배치 */
+function positionBombBtn(btn, month) {
+  const cards = [...$('#myHand').querySelectorAll('.card')].filter(c => {
+    const id = c.dataset.cardId; if (!id) return false;
+    return parseInt(id.slice(1, id.indexOf('_')), 10) === month;
+  });
+  if (!cards.length) return;
+  const rects = cards.map(c => c.getBoundingClientRect());
+  const left = Math.min(...rects.map(r => r.left));
+  const right = Math.max(...rects.map(r => r.right));
+  const top = Math.min(...rects.map(r => r.top));
+  const tR = $('#table').getBoundingClientRect();
+  const cx = (left + right) / 2 - tR.left;
+  const bw = btn.offsetWidth || 130, bh = btn.offsetHeight || 40;
+  btn.style.left = Math.round(cx - bw / 2) + 'px';
+  btn.style.top = Math.round(top - tR.top - bh - 12) + 'px';
 }
 
 /* ---------------- 턴 타이머(20초) ---------------- */
@@ -1264,13 +1297,13 @@ function renderCaptured(container, cardsRaw, mine) {
     ribbon: cards.filter(c => c.type === 'ribbon'),
     junk: cards.filter(c => c.type === 'junk' || asPi(c)),
   };
-  const labels = { gwang: '광', animal: '열', ribbon: '띠', junk: '피' };
+  // 한게임식 2줄: 윗줄=광·끗, 아랫줄=띠·피 (라벨 없이 자리로만 구분)
+  const row1 = document.createElement('div'); row1.className = 'cap-row';
+  const row2 = document.createElement('div'); row2.className = 'cap-row';
+  const rowFor = { gwang: row1, animal: row1, ribbon: row2, junk: row2 };
   for (const k of ['gwang', 'animal', 'ribbon', 'junk']) {
     const arr = groups[k]; if (!arr.length) continue;
     const g = document.createElement('div'); g.className = 'cap-group';
-    const lab = document.createElement('span'); lab.className = 'cap-label';
-    const n = k === 'junk' ? arr.reduce((s, c) => s + (c.kukjin ? 2 : (c.piValue || 1)), 0) : arr.length;
-    lab.textContent = `${labels[k]}${n}`; g.appendChild(lab);
     arr.forEach(c => {
       const el = window.Hwatu.makeCardEl(c, { faceUp: true, small: true });
       if (c.kukjin) { // 국진: 먹을 때 정한 용도 표시(열/쌍피)
@@ -1281,8 +1314,10 @@ function renderCaptured(container, cardsRaw, mine) {
       }
       g.appendChild(el);
     });
-    container.appendChild(g);
+    rowFor[k].appendChild(g);
   }
+  if (row1.children.length) container.appendChild(row1);
+  if (row2.children.length) container.appendChild(row2);
 }
 
 /* 흔든 패 공개: 우측 이벤트 영역에 양쪽이 흔든 3장씩 나란히 표시 */

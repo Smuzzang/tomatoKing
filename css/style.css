@@ -165,18 +165,20 @@ button.link{background:none;border:none;color:#cfe6db;font-size:13px;cursor:poin
 .col-right{width:16%;min-width:118px;justify-content:space-between;gap:8px;}
 
 /* 먹은 패 구역 */
-/* 먹은 패 띠 — 손패 위(아래)에 가로로 그룹 정렬 */
-.captured.strip{display:flex;flex-direction:row;flex-wrap:wrap;gap:12px;justify-content:center;align-items:center;
-  min-height:58px;padding:2px 8px;}
+/* 먹은 패 — 좌측에 띄움(바닥 세로공간 안 먹음). 한게임식 2줄(윗줄 광·끗 / 아랫줄 띠·피), 라벨 없이 자리로만 */
+.captured.strip{position:absolute;left:12px;z-index:6;
+  display:flex;flex-direction:column;gap:7px;align-items:flex-start;max-width:46%;padding:0;}
+.captured.strip.opp{top:64px;}
+.captured.strip.me{bottom:8px;}
+.captured.strip .card.card-sm{width:52px;height:85px;}
+.cap-row{display:flex;flex-direction:row;gap:12px;align-items:center;}
 .cap-group{display:flex;align-items:center;background:rgba(0,0,0,.22);border:1px solid rgba(255,255,255,.06);
-  border-radius:10px;padding:3px 8px 3px 6px;}
-.cap-group .card{margin-left:-23px;}
+  border-radius:9px;padding:3px 6px;}
+.cap-group .card{margin-left:-30px;}
 .cap-group .card:first-of-type{margin-left:0;}
-.cap-group .cap-label{font-size:11px;color:#2a2a2a;background:var(--gold);font-weight:900;margin-right:5px;
-  padding:2px 7px;border-radius:9px;min-width:26px;text-align:center;}
 
-/* 손패 */
-.hand{display:flex;justify-content:center;flex-wrap:wrap;min-height:var(--card-h);gap:4px;}
+/* 손패 — 우측으로 정렬(한게임식) */
+.hand{display:flex;justify-content:flex-end;flex-wrap:wrap;min-height:var(--card-h);gap:4px;padding-right:16px;}
 .hand.backs .card{margin:0 -14px;}              /* 상대 뒷면 겹침 */
 #myHand{gap:5px;row-gap:6px;align-content:flex-end;}
 
@@ -234,10 +236,10 @@ button.link{background:none;border:none;color:#cfe6db;font-size:13px;cursor:poin
 .card.kukjin-toggle{cursor:pointer;}
 .card.kukjin-toggle:hover{filter:brightness(1.2);}
 /* 흔든 패 공개 (우측 이벤트 영역) */
-/* 흔들기 공개: 좌측 전체 높이 — 상대=위쪽, 나=아래쪽(가운데 토스트와 안 겹침) */
-.shake-zone{position:absolute;left:14px;top:0;bottom:0;width:min(22%,236px);
-  display:flex;flex-direction:column;justify-content:space-between;
-  padding:66px 0;pointer-events:none;z-index:8;}
+/* 흔들기 공개: 좌측, 각자 먹은패 쪽에 — 상대=상대 먹은패 아래, 나=내 먹은패 위 */
+.shake-zone{position:absolute;left:12px;top:266px;bottom:206px;
+  display:flex;flex-direction:column;justify-content:space-between;align-items:flex-start;
+  pointer-events:none;z-index:8;}
 .shk-grp{display:flex;flex-direction:column;gap:6px;align-items:flex-start;}
 .shk-grp.bot{margin-top:auto;}
 .shake-row{background:rgba(0,0,0,.36);border:1px solid rgba(232,176,74,.5);border-radius:10px;
@@ -298,6 +300,8 @@ button.link{background:none;border:none;color:#cfe6db;font-size:13px;cursor:poin
 .modal-box h2{margin:0 0 6px;font-size:24px;}
 .modal-box .score-big{font-size:48px;font-weight:900;color:var(--gold);margin:8px 0;}
 .modal-box .flags{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin:8px 0;}
+.nagari-accum{margin:6px 0 10px;font-size:17px;font-weight:900;color:#ff7a3a;text-align:center;}
+.nagari-accum b{color:var(--gold);font-size:20px;}
 .modal-box .flag{background:var(--tomato);font-size:12px;font-weight:800;padding:3px 10px;border-radius:20px;}
 .modal-box .parts{font-size:13px;color:#cfe6db;margin:8px 0;line-height:1.7;}
 .modal-actions{display:flex;gap:10px;margin-top:16px;}
@@ -407,9 +411,12 @@ button.link{background:none;border:none;color:#cfe6db;font-size:13px;cursor:poin
 .chat-input button{padding:6px 10px;border:none;border-radius:8px;background:var(--tomato);color:#fff;font-weight:700;font-size:12px;cursor:pointer;white-space:nowrap;}
 
 /* 폭탄 버튼 */
-.bomb-btn{align-self:center;margin:0 auto 6px;background:linear-gradient(180deg,#ff5a4d,#c0271c);color:#fff;
-  border:2px solid #ffd24a;border-radius:24px;padding:8px 22px;font-size:16px;font-weight:900;cursor:pointer;
-  box-shadow:0 6px 18px rgba(226,59,46,.5);animation:bombPulse 1s ease-in-out infinite;}
+/* 폭탄 버튼 — 폭탄 가능한 손패 바로 위에 띄움(JS가 위치 지정) */
+.bomb-btn{position:absolute;z-index:25;margin:0;background:linear-gradient(180deg,#ff5a4d,#c0271c);color:#fff;
+  border:2px solid #ffd24a;border-radius:24px;padding:7px 18px;font-size:15px;font-weight:900;cursor:pointer;white-space:nowrap;
+  box-shadow:0 6px 18px rgba(226,59,46,.55);animation:bombPulse 1s ease-in-out infinite;}
+.bomb-btn::after{content:"";position:absolute;left:50%;bottom:-9px;transform:translateX(-50%);
+  border-left:8px solid transparent;border-right:8px solid transparent;border-top:9px solid #c0271c;}
 @keyframes bombPulse{0%,100%{transform:scale(1);}50%{transform:scale(1.07);box-shadow:0 8px 24px rgba(255,210,74,.7);}}
 
 /* 턴 타이머 */

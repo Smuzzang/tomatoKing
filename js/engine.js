@@ -42,7 +42,7 @@ function stealPi(state, fromIdx, toIdx, count) {
 }
 
 /* ---- 게임 시작 ---- */
-function newGame({ seed, names = ['나', '상대'], aiFlags = [false, true], mode = 'classic', starter = 0 }) {
+function newGame({ seed, names = ['나', '상대'], aiFlags = [false, true], mode = 'classic', starter = 0, stakeMult = 1 }) {
   const rng = window.Hwatu.makeRng(seed >>> 0);
   let deck, floor, hands;
   // 딜링 (특수상황이면 재딜)
@@ -70,6 +70,7 @@ function newGame({ seed, names = ['나', '상대'], aiFlags = [false, true], mod
     })),
     turn: starter,     // 선(先)
     starter,
+    stakeMult,         // 나가리 누적 배수(이전 판들이 나가리면 ×2씩 누적)
     phase: 'await_play',
     choice: null,
     ppeok: {},         // 월 → 뻑 만든 사람(자뻑 판정용)
@@ -296,8 +297,10 @@ function scoreAndAdvance(state) {
   const score = me.scoreInfo.total;
   // 고/스톱 판단: minGo 이상 + 직전 고시점보다 점수 상승
   if (score >= state.minGo && score > me.scoreAtGo) {
-    state.phase = 'await_go_stop';
     state.turnCtx = null;
+    // 더 낼 카드가 없으면 '고'는 불가능(나가리가 됨) → 자동 스톱(이 사람 승리)
+    if (!canStillPlay(state, state.turn)) return finishGame(state, state.turn);
+    state.phase = 'await_go_stop';
     return { ok: true, goStop: true };
   }
   return endTurnAdvance(state);
@@ -405,12 +408,15 @@ function finishGame(state, winner) {
   const withGo = window.Rules.applyGo(base, w.goCount);
   const goBak = lo.goCount > 0; // 패자가 고 외쳤었다 → 고박
   const bak = window.Rules.bakMultiplier(w.captured, lo.captured, { goBak, shake: w.shake, bomb: w.bomb });
-  const final = withGo * bak.multiplier;
+  const stakeMult = state.stakeMult || 1; // 나가리 누적(이전 판들이 나가리면 ×2씩)
+  const flags = bak.flags.slice();
+  if (stakeMult > 1) flags.push(`나가리누적 ×${stakeMult}`);
+  const final = withGo * bak.multiplier * stakeMult;
   state.phase = 'ended';
   state.winner = winner;
   state.result = {
-    winner, base, withGo, multiplier: bak.multiplier,
-    flags: bak.flags, final, goCount: w.goCount, goBak,
+    winner, base, withGo, multiplier: bak.multiplier, stakeMult,
+    flags, final, goCount: w.goCount, goBak,
   };
   return { ok: true, ended: true };
 }
