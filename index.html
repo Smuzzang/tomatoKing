@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 <title>토마토 맞고 — Tomato Matgo</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='24' fill='%23e23b2e'/%3E%3C/svg%3E" />
-<link rel="stylesheet" href="css/style.css?v=47" />
+<link rel="stylesheet" href="css/style.css?v=49" />
 </head>
 <body>
 <div id="app">
@@ -103,6 +103,7 @@
     <!-- 오른쪽: 점수판 + 이벤트 이펙트 -->
     <div class="col col-right">
       <div class="pinfo opp">
+        <img class="pavatar" id="oppAvatar" alt="" src="img/avatar-opp.png" onerror="this.classList.add('noimg')" />
         <div class="pname" id="oppName">상대</div>
         <div class="pscore" id="oppScore">0점</div>
         <span class="go-badge" id="oppGo" hidden></span>
@@ -113,6 +114,7 @@
         <div class="shake-zone" id="shakeZone"></div>
       </div>
       <div class="pinfo me">
+        <img class="pavatar" id="myAvatar" alt="" src="img/avatar-me.png" onerror="this.classList.add('noimg')" />
         <div class="pname" id="myName">나</div>
         <div class="pscore" id="myScore">0점</div>
         <span class="go-badge" id="myGo" hidden></span>
@@ -155,14 +157,14 @@
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-database-compat.js"></script>
-<script src="js/rooms.js?v=47"></script>
-<script src="js/sfx.js?v=47"></script>
-<script src="js/cards.js?v=47"></script>
-<script src="js/rules.js?v=47"></script>
-<script src="js/engine.js?v=47"></script>
-<script src="js/ai.js?v=47"></script>
-<script src="js/net.js?v=47"></script>
-<script src="js/main.js?v=47"></script>
+<script src="js/rooms.js?v=49"></script>
+<script src="js/sfx.js?v=49"></script>
+<script src="js/cards.js?v=49"></script>
+<script src="js/rules.js?v=49"></script>
+<script src="js/engine.js?v=49"></script>
+<script src="js/ai.js?v=49"></script>
+<script src="js/net.js?v=49"></script>
+<script src="js/main.js?v=49"></script>
 </body>
 </html>
 

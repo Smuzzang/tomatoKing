@@ -28,14 +28,15 @@ function floorOfMonth(state, month) {
 function stealPi(state, fromIdx, toIdx, count) {
   const from = state.players[fromIdx].captured;
   const to = state.players[toIdx].captured;
-  let stolen = 0;
+  const stolen = []; // 뺏어온 카드들(연출용)
   for (let k = 0; k < count; k++) {
     // 일반 피(piValue 1) 우선, 없으면 쌍피
     let idx = from.findIndex(c => c.type === 'junk' && c.piValue === 1);
     if (idx === -1) idx = from.findIndex(c => c.type === 'junk');
     if (idx === -1) break;
-    to.push(from.splice(idx, 1)[0]);
-    stolen++;
+    const card = from.splice(idx, 1)[0];
+    to.push(card);
+    stolen.push(card);
   }
   return stolen;
 }
@@ -256,9 +257,10 @@ function finalizeTurn(state) {
   if (cap.length > 0 && state.floor.length === 0 && !ctx.lastHandCard) { ctx.events.push('싹쓸이'); ctx.pi += 1; }
 
   // 피 뺏기
+  let stolenCards = [];
   if (ctx.pi > 0) {
-    const got = stealPi(state, oppOf(state.turn), state.turn, ctx.pi);
-    if (got > 0) ctx.events.push(`피 +${got}`);
+    stolenCards = stealPi(state, oppOf(state.turn), state.turn, ctx.pi);
+    if (stolenCards.length > 0) ctx.events.push(`피 +${stolenCards.length}`);
   }
 
   // 애니메이션용: 이번 턴에 회수한 카드 정보 (바닥→먹은패 쓸어담기 연출)
@@ -269,6 +271,8 @@ function finalizeTurn(state) {
     deckCaptured: ctx.dcap.length > 0,
     floorCards: cap.filter(c => c !== ctx.h && c !== ctx.d),
     allIds: cap.map(c => c.id),
+    stolen: stolenCards,                  // 상대에게서 뺏어온 피(연출용)
+    stolenIds: stolenCards.map(c => c.id),
   };
 
   state.events = ctx.events.slice();

@@ -414,6 +414,9 @@ function onGuestData(msg) {
     if (App._hostName) App.state.players[0].name = App._hostName;
     show('table');
     markInflight(App.state);
+    // 상대(호스트) 회수가 들어오면 렌더 전에 미리 잠금 — 턴 일찍 넘어와 보이는 것 방지
+    const glc = App.state.lastCapture;
+    if (glc && glc.seq !== App._animSeq && App.state.lastPlay && App.state.lastPlay.by !== App.myIdx && App.state.lastPlay.seq === glc.seq) lockInput(true);
     render();
     applyJuice(Array.isArray(msg.events) ? msg.events : []);
     postRender();
@@ -452,6 +455,8 @@ function markInflight(s) {
   if (!lc || lc.seq === App._animSeq) return;
   // 회수 카드: 쓸어담기 전까지 스트립에서 숨김
   App._inFlightCapIds = (lc.allIds && lc.allIds.length) ? new Set(lc.allIds) : new Set();
+  // 뺏어온 피: 슬라이드 연출 끝나기 전까지 새 주인 더미에서 숨김
+  if (lc.stolenIds && lc.stolenIds.length) lc.stolenIds.forEach(id => App._inFlightCapIds.add(id));
   // 바닥에 새로 깔리는(안 먹힌) 패: 날아가는 카드가 착지하기 전까지 바닥에서 숨김
   const fset = new Set();
   const lp = s.lastPlay;
@@ -465,6 +470,10 @@ function afterChange() {
   const s = App.state;
   const ev = (s.events || []).slice();
   markInflight(s);
+  // 상대 행위로 새 회수가 생기면 렌더 전에 미리 입력 잠금
+  // → 턴이 일찍 내게 넘어와 보이거나, 정리 중 내가 패를 내는 걸 방지
+  const lc = s.lastCapture;
+  if (lc && lc.seq !== App._animSeq && s.lastPlay && s.lastPlay.by !== App.myIdx && s.lastPlay.seq === lc.seq) lockInput(true);
   render();
   applyJuice(ev);
   if (App.mode === 'host') broadcast(ev);
@@ -952,7 +961,8 @@ function render() {
 
   // 내 손패
   const mh = $('#myHand'); mh.innerHTML = '';
-  const canPlay = myTurn && s.phase === 'await_play';
+  // 연출(상대 회수·쓸어담기·피뺏기) 중에는 아직 못 냄 → 정리 끝나면 finishSweep가 다시 렌더
+  const canPlay = myTurn && s.phase === 'await_play' && !App._animating;
   me.hand.forEach(c => {
     const el = window.Hwatu.makeCardEl(c, { faceUp: true });
     if (canPlay) {
@@ -1005,9 +1015,10 @@ function render() {
   else if (s.phase === 'await_match' && myTurn) tag = '가져갈 패를 고르세요';
   else if (s.phase === 'await_go_stop') tag = (myTurn ? '고/스톱 선택' : '상대 고민 중…');
   else if (myDeckPlay) tag = '💣 더미패를 치세요';
+  else if (myTurn && App._animating) tag = '잠깐만…'; // 상대 정리 중
   else tag = myTurn ? '내 차례' : '상대 차례';
   const tagEl = $('#turnTag'); tagEl.textContent = tag;
-  tagEl.classList.toggle('mine', myTurn && s.phase !== 'ended');
+  tagEl.classList.toggle('mine', myTurn && s.phase !== 'ended' && !App._animating);
   $('#statusbar').textContent = choosing ? '같은 월 2장 중 하나를 선택!' : '';
 
   // 폭탄 버튼
@@ -1033,7 +1044,7 @@ const TURN_LIMIT = 20;
 function manageTimer(s) {
   if (App._dev) { stopTimer(); return; } // 테스트 모드: 자동진행 끔
   const actionable = ['await_play', 'await_match', 'await_go_stop', 'await_kukjin'].includes(s.phase);
-  if (!actionable || s.phase === 'ended' || s.turn !== App.myIdx) { stopTimer(); return; }
+  if (!actionable || s.phase === 'ended' || s.turn !== App.myIdx || App._animating) { stopTimer(); return; }
   const key = `${s.playSeq || 0}-${s.phase}-${s.turn}`;
   if (key === App._timerKey) return; // 같은 결정점 → 유지
   restartTimer(key);
@@ -1299,6 +1310,10 @@ function animateTurn(s, lp, mine) {
   const lc = (s.lastCapture && s.lastCapture.seq === lp.seq) ? s.lastCapture : null;
   const toStrip = lp.by === App.myIdx ? '#myCap' : '#oppCap';
   const persistent = []; // 쓸어담을 오버레이 {el, x, y, w, h}
+  // 피 뺏기: 진 쪽 더미 → 이긴 쪽 더미로 슥 슬라이드(쓸어담기 직후)
+  const steal = (lc && lc.stolen && lc.stolen.length)
+    ? { cards: lc.stolen, fromSel: (lp.by === App.myIdx ? '#oppCap' : '#myCap'), toSel: toStrip }
+    : null;
 
   // 쪽: 짝 없는 패를 냈는데 더미가 그 패와 맞아 둘 다 먹음
   // → 낸 패를 바닥에 깔고, 더미 깐 패가 그 위로 얹히게 (엔진이 둘 다 hcap에 넣어 deckCaptured=false라 이벤트로 감지)
@@ -1350,14 +1365,15 @@ function animateTurn(s, lp, mine) {
     deckLand = deckDelay + dur + deckExtra + 120;
   }
 
-  // 3) 모든 행위 끝 → 잠깐 멈춘 뒤 먹은패로 쓸어담기
+  // 3) 모든 행위 끝 → 잠깐 멈춘 뒤 먹은패로 쓸어담기 → (있으면) 피 뺏기 슬라이드
   const sweepStart = (lp.deck ? deckLand : dur) + hold;
-  setTimeout(() => sweepToStrip(persistent, toStrip, sweepDur, lp.by), sweepStart);
+  setTimeout(() => sweepToStrip(persistent, toStrip, sweepDur, lp.by, steal), sweepStart);
 
-  // 안전장치: 일정 시간 뒤 무조건 입력 잠금 해제 + 숨겨진 바닥패 노출
-  const total = sweepStart + sweepDur + persistent.length * 50 + 250;
+  // 안전장치: 일정 시간 뒤 무조건 입력 잠금 해제 + 숨겨진 바닥패 노출 + 재렌더
+  const stealMs = steal ? (440 + (steal.cards.length - 1) * 90 + 120) : 0;
+  const total = sweepStart + sweepDur + persistent.length * 50 + 250 + stealMs;
   clearTimeout(App._lockTo);
-  App._lockTo = setTimeout(() => { lockInput(false); revealAllFloor(); }, total + 300);
+  App._lockTo = setTimeout(() => { lockInput(false); revealAllFloor(); render(); }, total + 300);
 
   return sweepStart; // 이벤트 토스트는 정산 보인 시점에
 }
@@ -1381,8 +1397,8 @@ function addFloorOverlays(lc, persistent) {
   });
 }
 
-function sweepToStrip(persistent, stripSel, sweepDur, byIdx) {
-  if (!persistent.length) { finishSweep(byIdx); return; }
+function sweepToStrip(persistent, stripSel, sweepDur, byIdx, steal) {
+  if (!persistent.length) { runStealThenFinish(steal, byIdx); return; }
   const strip = rectOf(stripSel);
   const tx = strip ? strip.left + strip.width / 2 : innerWidth / 2;
   const ty = strip ? strip.top + strip.height / 2 : innerHeight - 40;
@@ -1399,16 +1415,47 @@ function sweepToStrip(persistent, stripSel, sweepDur, byIdx) {
     ], { duration: sweepDur, delay, easing: 'cubic-bezier(.5,0,.7,1)', fill: 'forwards' });
     a.onfinish = () => p.el.remove();
   });
-  setTimeout(() => { window.SFX && SFX.tidy(); finishSweep(byIdx); }, sweepDur + last + 80); // 삭삭삭 정리
+  setTimeout(() => { window.SFX && SFX.tidy(); runStealThenFinish(steal, byIdx); }, sweepDur + last + 80); // 삭삭삭 정리
+}
+
+/* 쓸어담기 끝 → 피 뺏기 슬라이드(있으면) → 마무리 */
+function runStealThenFinish(steal, byIdx) {
+  if (!steal || !steal.cards || !steal.cards.length) { finishSweep(byIdx); return; }
+  stealSlide(steal, () => finishSweep(byIdx));
+}
+
+/* 진 쪽 더미에서 피를 뽑아 이긴 쪽 더미로 슥 가져오는 연출 */
+function stealSlide(steal, done) {
+  const from = rectOf(steal.fromSel), to = rectOf(steal.toSel);
+  if (!from || !to) { done(); return; }
+  const fx = from.left + from.width / 2 - 22, fy = from.top + from.height / 2 - 36;
+  const tx = to.left + to.width / 2 - 22, ty = to.top + to.height / 2 - 36;
+  const dx = tx - fx, dy = ty - fy;
+  window.SFX && SFX.paper && SFX.paper(); // 슥
+  let last = 0;
+  steal.cards.forEach((c, i) => {
+    const el = overlayCard(c, { width: 44, height: 72 });
+    el.style.left = fx + 'px'; el.style.top = fy + 'px';
+    el.style.zIndex = '40';
+    const delay = i * 90; last = delay;
+    const a = el.animate([
+      { transform: 'translate(0,0) scale(.9) rotate(-10deg)', opacity: 0, offset: 0 },
+      { transform: 'translate(0,-14px) scale(1.18) rotate(-6deg)', opacity: 1, offset: .18 },           // 쏙 뽑힘
+      { transform: `translate(${dx * 0.55}px,${dy * 0.55 - 22}px) scale(1.05) rotate(8deg)`, opacity: 1, offset: .62 }, // 슥
+      { transform: `translate(${dx}px,${dy}px) scale(.66) rotate(0deg)`, opacity: .2, offset: 1 },        // 더미에 안착
+    ], { duration: 440, delay, easing: 'cubic-bezier(.4,0,.55,1)', fill: 'forwards' });
+    a.onfinish = () => el.remove();
+  });
+  setTimeout(done, 440 + last + 80);
 }
 
 function finishSweep(byIdx) {
   const s = App.state; if (!s) { lockInput(false); return; }
   if (App._inFlightCapIds) App._inFlightCapIds.clear();
-  renderCaptured($('#myCap'), s.players[App.myIdx].captured, true);
-  renderCaptured($('#oppCap'), s.players[1 - App.myIdx].captured, false);
-  bump(byIdx === App.myIdx ? '#myCap' : '#oppCap');
+  if (App._flyingFloorIds) App._flyingFloorIds.clear();
   lockInput(false);
+  render(); // 전체 재렌더 → 이제야 내 손패 playable/타이머 시작, 뺏은 피 새 더미에 표시
+  bump(byIdx === App.myIdx ? '#myCap' : '#oppCap');
 }
 
 function lockInput(v) { App._animating = v; }
