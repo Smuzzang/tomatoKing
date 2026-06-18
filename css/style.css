@@ -3,7 +3,8 @@
   --felt1:#1b6b4a; --felt2:#0f4d34;
   --gold:#e8b04a; --tomato:#e23b2e;
   --ink:#1a1a1a; --paper:#fff8ea;
-  --card-w:64px; --card-h:105px;   /* 실제 화투 이미지 비율(≈1.64) */
+  /* 카드 크기 = 화면에 반응(넓은 화면일수록 큼). 높이는 폭에서 자동(비율 1.64) */
+  --card-w:clamp(72px, 10.5vmin, 96px); --card-h:calc(var(--card-w) * 1.64);
 }
 *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
 [hidden]{display:none !important;}
