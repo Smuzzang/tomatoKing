@@ -88,6 +88,20 @@ function show(id) {
   ['lobby', 'waiting', 'firstpick', 'table'].forEach(s => $('#' + s).hidden = (s !== id));
   const chat = $('#chat'); if (chat) chat.hidden = !(id === 'table' && App.mode !== 'single'); // 온라인에서만
   const lv = $('#leaveBtn'); if (lv) lv.hidden = (id !== 'table');
+  applyCoffeeUI();
+}
+/* ☕ 커피 내기 방: 채팅창 반으로 + 양심 문구 노출 */
+function applyCoffeeUI() {
+  const coffee = !!App._coffee && App.mode !== 'single' && !$('#table').hidden;
+  const chat = $('#chat'); if (chat) chat.classList.toggle('half', coffee);
+  const note = $('#coffeeNote'); if (note) note.hidden = !coffee;
+}
+/* 고 단계별 커피 메뉴 */
+function coffeeReward(n) {
+  if (n >= 4) return '☕ 모든 메뉴 🎉';
+  if (n === 3) return 'VENTI';
+  if (n === 2) return 'GRANDE';
+  return '아이스 아메리카노';
 }
 
 /* ---------------- 공개 방 목록(Firebase) ---------------- */
@@ -110,13 +124,14 @@ function renderRooms(list) {
 
     const row = document.createElement('div'); row.className = 'pr-row' + (joinable ? '' : ' busy');
     const info = document.createElement('div'); info.className = 'pr-info';
-    const title = document.createElement('div'); title.className = 'pr-title'; title.textContent = r.title || (r.host + '님의 방');
+    const title = document.createElement('div'); title.className = 'pr-title'; title.textContent = (r.coffee ? '☕ ' : '') + (r.title || (r.host + '님의 방'));
     const sub = document.createElement('div'); sub.className = 'pr-sub';
     let badge = '';
     if (playing) badge = '<span class="pr-badge playing">게임 중</span>';
     else if (full) badge = '<span class="pr-badge full">가득 참 2/2</span>';
     else badge = '<span class="pr-badge open">기다리는 중 1/2</span>';
-    sub.innerHTML = `<span class="pr-host">${escapeHtml(r.host)}</span> ${badge}`;
+    const coffeeBadge = r.coffee ? '<span class="pr-badge coffee">☕ 커피 내기</span>' : '';
+    sub.innerHTML = `<span class="pr-host">${escapeHtml(r.host)}</span> ${badge}${coffeeBadge}`;
     info.appendChild(title); info.appendChild(sub);
     row.appendChild(info);
 
@@ -155,6 +170,7 @@ function resetRoundState() {
 /* ---------------- 게임 시작 ---------------- */
 function startSingle() {
   App.mode = 'single'; App.myIdx = 0; App.nick = nickname();
+  App._coffee = false;
   window.SFX && SFX.init();
   beginFirstPick();            // 첫 게임은 선(先) 정하기부터
 }
@@ -199,32 +215,34 @@ function showCreateRoom() {
   box.innerHTML = `<h2>방 만들기</h2>
     <label class="field" style="text-align:left"><span>방 제목</span>
       <input id="roomTitleInput" type="text" maxlength="16" placeholder="${nick}님의 방"></label>
+    <label class="coffee-opt"><input type="checkbox" id="coffeeChk"> <span>☕ 커피 내기</span></label>
     <div class="modal-actions">
       <button class="btn-go" id="crGo">만들기</button>
       <button class="btn-stop" id="crCancel">취소</button>
     </div>`;
   $('#modal').hidden = false;
   const inp = $('#roomTitleInput'); setTimeout(() => inp && inp.focus(), 60);
-  const go = () => { const t = ((inp.value || '').trim() || (nick + '님의 방')).slice(0, 16); $('#modal').hidden = true; startHost(t); };
+  const go = () => { const t = ((inp.value || '').trim() || (nick + '님의 방')).slice(0, 16); const coffee = !!$('#coffeeChk').checked; $('#modal').hidden = true; startHost(t, coffee); };
   $('#crGo').onclick = go;
   inp.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
   $('#crCancel').onclick = () => { $('#modal').hidden = true; };
 }
 
-function startHost(title) {
+function startHost(title, coffee) {
   App.mode = 'host'; App.myIdx = 0; App.nick = nickname();
   App._guestJoined = false; App._leaving = false; App._oppLeftHandled = false; App._rematchWant = [false, false];
   App._myRoomCode = null; App._roomTitle = title || (App.nick + '님의 방');
+  App._coffee = !!coffee; // ☕ 커피 내기 방
   App._guestName = null; App._guestReady = false; App.state = null;
   window.SFX && SFX.init();
   showRoomWait();
   App.net = window.Net.host({
-    onReady: code => { App._myRoomCode = code; window.Rooms && Rooms.register(code, App._roomTitle, App.nick); },
+    onReady: code => { App._myRoomCode = code; window.Rooms && Rooms.register(code, App._roomTitle, App.nick, App._coffee); },
     onGuestJoin: () => {
       if (App._guestJoined) return;
       App._guestJoined = true; App._guestReady = false;
       App.net.send({ t: 'whoami', name: App.nick });
-      App.net.send({ t: 'roominfo', title: App._roomTitle, host: App.nick });
+      App.net.send({ t: 'roominfo', title: App._roomTitle, host: App.nick, coffee: App._coffee });
       window.Rooms && Rooms.update(App._myRoomCode, { status: 'full', players: 2 });
       chatSystem('상대가 입장했어요!');
       showRoomWait();
@@ -239,6 +257,7 @@ function startJoin(code) {
   App.mode = 'guest'; App.myIdx = 1; App.nick = nickname();
   App._leaving = false; App._oppLeftHandled = false; App._rematchWant = [false, false];
   App._iReady = false; App._roomTitle = '대전 방'; App._hostName = null; App._myRoomCode = null; App.state = null;
+  App._coffee = false; // 호스트의 roominfo에서 설정됨
   window.SFX && SFX.init();
   resetRoundState();
   toast('접속 중…');
@@ -341,7 +360,7 @@ function onHostData(msg) {
 function onGuestData(msg) {
   if (!msg || typeof msg !== 'object') return;
   if (msg.t === 'whoami') { App._hostName = (msg.name || '상대').slice(0, 8); if (!$('#waiting').hidden) showRoomWait(); return; }
-  if (msg.t === 'roominfo') { App._roomTitle = msg.title || '대전 방'; if (msg.host) App._hostName = msg.host; if (!$('#waiting').hidden) showRoomWait(); return; }
+  if (msg.t === 'roominfo') { App._roomTitle = msg.title || '대전 방'; App._coffee = !!msg.coffee; if (msg.host) App._hostName = msg.host; if (!$('#waiting').hidden) showRoomWait(); applyCoffeeUI(); return; }
   if (msg.t === 'rematchWant') { oppWantsRematch(); return; } // 호스트가 다시하기 원함(피드백)
   if (msg.t === 'chat') { addChatMessage(msg.name, msg.text, false); return; }
   if (msg.t === 'draw') { guestShowDraw(msg); return; }
@@ -428,7 +447,12 @@ function afterChange() {
 // 렌더 후 다음 행위자(AI/모달) 처리 — host/single 전용. guest는 onGuestData에서 postRender 호출
 function postRender() {
   const s = App.state;
-  if (s.phase === 'ended') { setTimeout(() => showResult(s.result), 600); return; }
+  if (s.phase === 'ended') {
+    // 마지막 패 회수 연출(촥→쓸어담기→피뺏기)이 끝난 뒤 결과 표시
+    const showWhenDone = () => { if (App._animating) setTimeout(showWhenDone, 250); else showResult(s.result); };
+    setTimeout(showWhenDone, 500);
+    return;
+  }
 
   const isMine = s.turn === App.myIdx;
 
@@ -624,10 +648,15 @@ function showResult(result) {
     // 진 사람에게: 점당 100원이었으면 얼마 잃었나 드립
     const lostWon = (result.final * 100).toLocaleString();
     const moneyJab = iWon ? '' : `<div class="money-jab">💸 이게 <b>점당 100원</b>짜리 판이었다면<br>당신은 방금 <b class="lost-amount">${lostWon}원</b>을 잃었습니다.<br><span class="kkk">ㅋㅋㅋ</span></div>`;
+    // 커피 내기: 어디서 스톱했는지 + 메뉴 (양쪽 다 보임)
+    const coffeeResult = App._coffee
+      ? `<div class="coffee-result">☕ ${result.goCount > 0 ? `<b>${result.goCount}고</b>에서 스톱` : '스톱(7점)'} → <b class="cr-menu">${coffeeReward(result.goCount)}</b><div class="cr-who">${iWon ? '상대가 사는 거예요 😋' : '내가 사야 해요… 😭'}</div></div>`
+      : '';
     box.innerHTML = `
       <h2>${iWon ? '🎉 승리!' : '😢 패배'}</h2>
       <p class="muted">${w.name} 승리</p>
       <div class="score-big">${result.final}점</div>
+      ${coffeeResult}
       <div class="flags">${(result.flags || []).map(f => `<span class="flag">${f}</span>`).join('')}</div>
       <div class="parts">
         기본 ${result.base}점${result.goCount ? ` · ${result.goCount}고 → ${result.withGo}점` : ''}${result.multiplier > 1 ? ` · ×${result.multiplier}` : ''}
@@ -1177,7 +1206,11 @@ function autoAct() {
 
 function badge(sel, n) {
   const el = $(sel);
-  if (n > 0) { el.hidden = false; el.textContent = n + '고'; } else el.hidden = true;
+  if (n > 0) {
+    el.hidden = false;
+    el.textContent = n + '고' + (App._coffee ? ' · ' + coffeeReward(n) : ''); // 커피방이면 메뉴도
+    el.classList.toggle('coffee', !!App._coffee);
+  } else el.hidden = true;
 }
 
 /* 바닥 슬롯 기하 — 현재 화면 크기 기준 (리사이즈마다 재계산) */
@@ -1364,11 +1397,14 @@ function applyJuice(ev) {
     if (lp && lp.seq === lc.seq) evDelay = animateTurn(s, lp, mine);
   }
 
-  // 고(GO) 선언 → 큰 금박 컷
+  // 고(GO) 선언 → 큰 금박 컷 (커피 내기면 메뉴도)
   const go = [s.players[0].goCount || 0, s.players[1].goCount || 0];
   const pg = App._go || [0, 0];
   for (let i = 0; i < 2; i++) {
-    if (go[i] > pg[i]) { showBigCut(go[i] + '고'); window.SFX && SFX.go(); }
+    if (go[i] > pg[i]) {
+      const tag = go[i] + '고' + (App._coffee ? `<span class="cut-coffee">☕ ${coffeeReward(go[i])}</span>` : '');
+      showBigCut(tag); window.SFX && SFX.go();
+    }
   }
   App._go = go;
 

@@ -27,7 +27,7 @@
   function available() { return ready && !!db; }
 
   /* 방 등록(호스트). 접속 끊기면 onDisconnect로 자동 삭제 */
-  function register(code, title, hostName) {
+  function register(code, title, hostName, coffee) {
     if (!available() || !code) return;
     try {
       const ref = db.ref('rooms/' + code);
@@ -37,6 +37,7 @@
         guest: null,
         status: 'waiting',
         players: 1,
+        coffee: !!coffee,
         ts: firebase.database.ServerValue.TIMESTAMP,
       });
       ref.onDisconnect().remove(); // 호스트가 끊기면 방 자동 제거
@@ -66,7 +67,7 @@
         if (v.ts && (now - v.ts) > 30 * 60 * 1000) return; // 30분 넘은 유령 방 제외
         list.push({
           code: c.key, title: v.title || '대전 방', host: v.host || '플레이어',
-          guest: v.guest || null, status: v.status || 'waiting', players: v.players || 1, ts: v.ts || 0,
+          guest: v.guest || null, status: v.status || 'waiting', players: v.players || 1, coffee: !!v.coffee, ts: v.ts || 0,
         });
       });
       list.sort((a, b) => b.ts - a.ts); // 최신 먼저
