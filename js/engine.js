@@ -224,7 +224,8 @@ function resolveMatch(state, chosenId) {
   const ctx = state.turnCtx;
   const ch = state.choice;
   if (!ch.options.includes(chosenId)) return err('잘못된 선택');
-  const card = (ch.cardId === ctx.h.id) ? ctx.h : ctx.d;
+  // 더미패(폭탄 빚)는 ctx.h가 null → 항상 ctx.d. (널 가드: 선택해도 진행 안 되던 버그 수정)
+  const card = (ctx.h && ch.cardId === ctx.h.id) ? ctx.h : ctx.d;
   const chosen = state.floor.find(c => c.id === chosenId);
   removeById(state.floor, chosenId);
   setCap(ctx, ch.stage, [card, chosen]);
@@ -371,7 +372,7 @@ function playBomb(state, month) {
 
   const d = state.deck.length ? state.deck.shift() : null;
   state.playSeq = (state.playSeq || 0) + 1;
-  state.lastPlay = { hand: cards[0], deck: d, by: state.turn, seq: state.playSeq, bomb: true };
+  state.lastPlay = { hand: cards[0], deck: d, by: state.turn, seq: state.playSeq, bomb: true, bombCards: cards };
 
   me.bomb = (me.bomb || 0) + 1;                   // ×2 배수
   me.deckDebt = (me.deckDebt || 0) + (playCount - 1); // 낸 장수-1 만큼 더미패로 칠 빚

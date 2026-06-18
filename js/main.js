@@ -978,7 +978,7 @@ function render() {
 /* ---------------- 턴 타이머(20초) ---------------- */
 const TURN_LIMIT = 20;
 function manageTimer(s) {
-  if (App._dev) { stopTimer(); return; } // 테스트 모드: 자동진행 끔
+  // dev에서도 타이머(타들어가는 화투패)는 보이게 — 단, 다 타도 자동진행은 안 함(burnTick에서 처리)
   const actionable = ['await_play', 'await_match', 'await_go_stop', 'await_kukjin'].includes(s.phase);
   if (!actionable || s.phase === 'ended' || s.turn !== App.myIdx || App._animating) { stopTimer(); return; }
   const key = `${s.playSeq || 0}-${s.phase}-${s.turn}`;
@@ -987,10 +987,19 @@ function manageTimer(s) {
 }
 function restartTimer(key) {
   App._timerKey = key;
-  startBurnTimer(TURN_LIMIT); // 화투패가 타들어가는 연출
+  clearTimeout(App._burnStartTo);
+  // 상대 연출(쪽·따닥 토스트 등)이 다 끝난 뒤에야 타이머 시작 → 확실히 내 차례일 때만
+  const wait = Math.max(0, (App._busyUntil || 0) - performance.now());
+  if (wait < 60) { startBurnTimer(TURN_LIMIT); return; }
+  App._burnStartTo = setTimeout(() => {
+    const s = App.state;
+    if (App._timerKey !== key || !s || s.phase === 'ended' || s.turn !== App.myIdx || App._animating) return;
+    startBurnTimer(TURN_LIMIT);
+  }, wait);
 }
 function stopTimer() {
   App._timerKey = null;
+  clearTimeout(App._burnStartTo);
   stopBurnTimer();
 }
 
@@ -1093,7 +1102,7 @@ function burnTick(now) {
   if (numEl) { numEl.textContent = Math.ceil(rem); numEl.style.top = (yf / 2 - 16) + 'px'; numEl.style.color = urgent ? '#ff6a4a' : '#fff'; }
   el.classList.toggle('urgent', urgent);
   if (p < 1 && now - (App._burnLastSpark || 0) > (urgent ? 50 : 95)) { burnSpark(yf, urgent); App._burnLastSpark = now; }
-  if (p >= 1) { stopBurnTimer(); autoAct(); return; }
+  if (p >= 1) { stopBurnTimer(); if (!App._dev) autoAct(); return; } // dev: 다 타도 자동진행 안 함
   App._burnRAF = requestAnimationFrame(burnTick);
 }
 function autoAct() {
@@ -1328,8 +1337,10 @@ function applyJuice(ev) {
   }
   App._go = go;
 
-  // 이벤트 토스트(우측 중앙) — 바닥 정산이 보인 뒤 표시
+  // 이벤트 토스트(좌측) — 바닥 정산이 보인 뒤 표시
   (ev || []).forEach((e, i) => setTimeout(() => fireEvent(e), evDelay + i * 280));
+  // 토스트(쪽·따닥 등)가 다 사라지는 시점 기록 → 그 전엔 내 타이머 시작 안 함
+  if (ev && ev.length) App._busyUntil = performance.now() + evDelay + (ev.length - 1) * 280 + 1750;
 }
 
 /* 한 턴 연출 오케스트레이션. 반환값 = 이벤트 토스트 시작 시점(ms) */
@@ -1355,8 +1366,22 @@ function animateTurn(s, lp, mine) {
 
   lockInput(true);
 
-  // 1) 손패 → 바닥(맞는 패 위에 촥) — 더미패 치기(lp.hand 없음)면 생략
-  if (lp.hand) {
+  // 1) 손패 → 바닥
+  if (lp.bomb && lp.bombCards && lp.bombCards.length) {
+    // 폭탄: 한 번에 안 나가고 카드가 하나씩 쓱쓱쓱
+    App._playSrcRect = null;
+    const handSrc = handAreaSrc(lp.by);
+    const baseTgt = flyTarget(lp.hand);
+    const bc = lp.bombCards, mid = (bc.length - 1) / 2;
+    bc.forEach((card, i) => {
+      setTimeout(() => {
+        window.SFX && SFX.slap();
+        const off = { left: baseTgt.left + (i - mid) * 18, top: baseTgt.top - i * 7, width: baseTgt.width, height: baseTgt.height };
+        const el = flyCard(handSrc, off, card, dur, { persist: true, landRot: (i - mid) * 7 });
+        if (el) { el.style.zIndex = String(20 + i); persistent.push(rectObj(el, off)); }
+      }, i * 145); // 쓱쓱쓱
+    });
+  } else if (lp.hand) {
     const handTgt = isJjok ? jjokTgt : flyTarget(lp.hand);
     const handSrc = (mine && App._playSrcRect) ? App._playSrcRect : handAreaSrc(lp.by);
     App._playSrcRect = null;
@@ -1399,7 +1424,8 @@ function animateTurn(s, lp, mine) {
   }
 
   // 3) 모든 행위 끝 → 잠깐 멈춘 뒤 먹은패로 쓸어담기 → (있으면) 피 뺏기 슬라이드
-  const sweepStart = (lp.deck ? deckLand : dur) + hold;
+  const bombLand = (lp.bomb && lp.bombCards) ? (lp.bombCards.length - 1) * 145 + dur + 100 : 0;
+  const sweepStart = Math.max((lp.deck ? deckLand : dur), bombLand) + hold;
   setTimeout(() => sweepToStrip(persistent, toStrip, sweepDur, lp.by, steal), sweepStart);
 
   // 안전장치: 일정 시간 뒤 무조건 입력 잠금 해제 + 숨겨진 바닥패 노출 + 재렌더
@@ -1674,14 +1700,13 @@ function flyDeck(src, tgt, card, dur, opts) {
   fly.style.height = (tgt.height || 105) + 'px';
   document.body.appendChild(fly);
   const dx = tgt.left - src.left, dy = tgt.top - src.top;
-  const lift = (tgt.height || 105) * 0.75;  // 덱에서 위로 떠오르는 높이
-  const raise = (tgt.height || 105) * 0.85;
+  // 위로 솟는 성분 전혀 없음: 덱→타겟으로 곧장 미끄러지며 공개 → 도착해서 누르듯(squash) 슬램
   const anim = fly.animate([
-    { transform: `translate(0px,0px) scale(0.86)`, opacity: 0.4, offset: 0, easing: 'ease-out' },
-    { transform: `translate(0px,${-lift}px) scale(1.5)`, opacity: 1, offset: 0.2 },           // 위로 떠올라 공개
-    { transform: `translate(0px,${-lift}px) scale(1.5)`, opacity: 1, offset: 0.42 },           // 잠깐 멈춰 보여줌
-    { transform: `translate(${dx}px,${dy - raise}px) scale(1.22)`, opacity: 1, offset: 0.66, easing: 'ease-in' }, // 타겟 위로
-    { transform: `translate(${dx}px,${dy}px) scale(1.05,0.78) rotate(${lr * 0.5}deg)`, opacity: 1, offset: 0.84, easing: 'ease-out' },   // 촥!
+    { transform: `translate(0px,0px) scale(0.84)`, opacity: 0.4, offset: 0, easing: 'ease-out' },
+    { transform: `translate(${dx * 0.45}px,${dy * 0.45}px) scale(1.4)`, opacity: 1, offset: 0.3 },   // 빠져나오며 공개
+    { transform: `translate(${dx * 0.74}px,${dy * 0.74}px) scale(1.3)`, opacity: 1, offset: 0.58 }, // 계속 이동하며 보여줌
+    { transform: `translate(${dx}px,${dy}px) scale(1.12)`, opacity: 1, offset: 0.82, easing: 'ease-in' }, // 타겟 도착(살짝 큼)
+    { transform: `translate(${dx}px,${dy}px) scale(1.04,0.8) rotate(${lr * 0.5}deg)`, opacity: 1, offset: 0.91, easing: 'ease-out' },   // 촥(눌림, 위로 안 솟음)
     { transform: `translate(${dx}px,${dy}px) scale(1) rotate(${lr}deg)`, opacity: 1, offset: 1 },
   ], { duration: total, fill: 'forwards' });
   anim.onfinish = persist ? () => commitOverlay(fly, anim, tgt, lr) : () => { revealFloorCard(card.id); fly.remove(); };
@@ -1743,6 +1768,7 @@ function initDev() {
     '국진선택': () => devStart(s => { s.players[0].hand = [C('m9_0'), C('m1_0')]; s.floor = [C('m9_1'), C('m2_0')]; s.deck = [C('m8_0')]; }, '국진(술잔=9월)을 내세요 → 먹는 순간 열끗/쌍피 선택'),
     '마지막판쓸이': () => devStart(s => { s.players[0].hand = [C('m5_0')]; s.floor = [C('m5_1'), C('m8_1')]; s.deck = [C('m8_0')]; }, '마지막 5월을 내세요 → 판쓸이지만 피 안 뺏김(상대 피 변화X 확인)'),
     '폭탄빚(더미패)': () => devStart(s => { s.players[0].hand = [C('m7_0')]; s.players[0].deckDebt = 2; s.floor = [C('m5_1')]; s.deck = [C('m5_2'), C('m8_0'), C('m8_1')]; }, '손패가 있어도 💣 더미패를 골라 쓸 수 있음'),
+    '폭탄→더미패선택': () => devStart(s => { s.players[0].hand = [C('m5_0'), C('m5_1'), C('m5_2')]; s.floor = [C('m5_3'), C('m7_0'), C('m7_1')]; s.deck = [C('m1_0'), C('m7_2'), C('m8_0')]; }, '💣5월 폭탄(카드 하나씩 나감) → 더미패 까면 7월 2장과 매칭 → 한 장 골라도 진행되는지 확인'),
     '패배결과': () => devStart(s => { s.phase = 'ended'; s.winner = 1; s.result = { winner: 1, base: 7, withGo: 8, multiplier: 2, final: 16, goCount: 1, goBak: false, flags: ['1고', '피박'] }; s.players[1].name = 'AI'; s.players[1].captured = [C('m1_0'), C('m3_0'), C('m8_0'), C('m1_2')]; }, '패배 결과 팝업(점당 100원 드립) 확인'),
   };
 
