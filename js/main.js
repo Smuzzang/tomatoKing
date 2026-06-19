@@ -54,6 +54,7 @@ function initLobby() {
   $('#fpCards').addEventListener('click', onFirstPickClick); // 선 정하기
   subscribeRooms(); // 공개 방 목록(Firebase)
   checkP2PStatus(); // P2P 중계(PeerJS 브로커) 상태 표시
+  window.FX && FX.init(); // PixiJS 효과 레이어(반짝임·폭발·금가루)
 
   // 창 크기 변경 시 바닥패 위치를 현재 화면에 맞춰 재배치
   window.addEventListener('resize', () => {
@@ -772,6 +773,7 @@ function showResult(result) {
     $('#modal').hidden = false;
     $('#mAgain').onclick = rematch;
     $('#mHome').onclick = leaveToLobby;
+    if (iWon && window.FX) FX.winGold();
     return;
   }
   {
@@ -799,6 +801,7 @@ function showResult(result) {
   $('#modal').hidden = false;
   $('#mAgain').onclick = rematch;
   $('#mHome').onclick = leaveToLobby;
+  if (result.winner === App.myIdx && window.FX) FX.winGold(); // 승리 금가루
 }
 
 /* 잔여 연출/모달 정리 (새 판 시작 시) */
@@ -1476,7 +1479,10 @@ function scatterFloor() {
       el.style.left = (x - cw / 2) + 'px';
       el.style.top = (y - chh / 2) + 'px';
       el.style.transform = `rotate(${rot.toFixed(1)}deg)`;
-      el.style.zIndex = el.classList.contains('choose') ? '25' : String(3 + i + Math.round((slot.y / H) * 6));
+      // 회수 중인 슬롯(같은 월의 형제 패가 먹히는 중)에 살아남은 패는 위로 올려, 날아가는 카드에 가려지지 않게
+      el.style.zIndex = el.classList.contains('choose') ? '25'
+        : (reserved.has(m) ? '30'
+        : String(3 + i + Math.round((slot.y / H) * 6)));
       App._floorPos[el.dataset.cardId] = { x, y, rot }; // 오버레이 연출용
     });
   });
@@ -1716,7 +1722,10 @@ function sweepToStrip(persistent, stripSel, sweepDur, byIdx, steal) {
       { transform: `translate(${dx * 0.55}px,${dy * 0.55}px) scale(.9) rotate(${lr}deg)`, opacity: 1, offset: .6 },
       { transform: `translate(${dx}px,${dy}px) scale(.55) rotate(${lr}deg)`, opacity: .15 },
     ], { duration: sweepDur, delay, easing: 'cubic-bezier(.5,0,.7,1)', fill: 'forwards' });
-    a.onfinish = () => p.el.remove();
+    a.onfinish = () => {
+      window.FX && FX.sparkleAt(tx, ty, 0.75); // 먹은 패 더미에 도착하는 순간 금빛 반짝임
+      p.el.remove();
+    };
   });
   setTimeout(() => { window.SFX && SFX.tidy(); runStealThenFinish(steal, byIdx); }, sweepDur + last + 80); // 삭삭삭 정리
 }
@@ -1823,6 +1832,11 @@ function fireEvent(e) {
   flash(isRed ? 'go-red' : 'go-gold');
   shake();
   if (window.SFX) { isRed ? SFX.thud() : SFX.sparkle(); }
+  // 폭탄 → 바닥(덱 근처)에서 큰 폭발 파티클
+  if (e === '폭탄' && window.FX) {
+    const r = rectOf('#floor') || rectOf('.center') || rectOf('#deck');
+    if (r) FX.bombBlast(r.left + r.width / 2, r.top + r.height / 2);
+  }
 }
 
 function toast(text, variant) {
@@ -2017,6 +2031,7 @@ function initDev() {
     '총통(패)': () => devStart(s => { s.seed = 9002; s.phase = 'ended'; s.winner = 1; s.stakeMult = 1; s.players[0].name = '나'; s.players[1].name = 'AI'; s.players[0].captured = []; s.players[1].captured = []; s.result = { winner: 1, base: 7, withGo: 7, multiplier: 1, stakeMult: 1, flags: ['총통'], final: 7, goCount: 0, chongtong: true }; }, '총통 패배 컷+결과'),
     '나가리선택': () => devStart(s => { s.phase = 'ended'; s.stakeMult = 1; s.result = { draw: true }; }, '나가리 → 다음 판 배수 선택 모달'),
     '손덱4장먹기': () => devStart(s => { s.players[0].hand = [C('m5_0'), C('m9_0')]; s.floor = [C('m5_1'), C('m7_1'), C('m1_0')]; s.deck = [C('m7_2'), C('m8_0')]; }, '5월 내면 바닥5월 먹고→덱에서 7월 까서 바닥7월 먹기(덱 매칭 바닥패 안 사라지는지)'),
+    '2장중선택': () => devStart(s => { s.players[0].hand = [C('m5_0'), C('m9_0')]; s.floor = [C('m5_1'), C('m5_2'), C('m1_0')]; s.deck = [C('m8_0'), C('m11_0')]; }, '5월 내면 바닥5월 2장 중 선택→덱에서 8월(안맞음) 깔림. 안 고른 5월이 깜빡이는지 확인'),
   };
 
   const bar = document.createElement('div');
