@@ -79,7 +79,17 @@ button.link{background:none;border:none;color:#cfe6db;font-size:13px;cursor:poin
 .muted{color:#cfe6db;font-size:13px;}
 
 /* ---------- 메인(로비) 깔끔한 단색 ---------- */
-.lobby{background:#191f1c;}                       /* 솔리드 — 펠트/노이즈 가림 */
+.lobby{background:#191f1c;position:relative;}     /* 솔리드 — 펠트/노이즈 가림 */
+/* P2P 중계(PeerJS 브로커) 상태 표시 — 좌측 상단 */
+.p2p-status{position:absolute;top:12px;left:14px;z-index:6;display:flex;align-items:center;gap:7px;
+  font-size:11px;color:#8a9a92;user-select:none;}
+.p2p-status .p2p-label{letter-spacing:-.2px;}
+.p2p-dot{width:9px;height:9px;border-radius:50%;background:#6b7670;flex:none;
+  box-shadow:0 0 0 rgba(0,0,0,0);transition:background .25s,box-shadow .25s;}
+.p2p-dot.ok{background:#34d36a;box-shadow:0 0 7px rgba(52,211,106,.85);}
+.p2p-dot.bad{background:#e23b2e;box-shadow:0 0 7px rgba(226,59,46,.85);}
+.p2p-dot.checking{background:#e2b33b;box-shadow:0 0 6px rgba(226,179,59,.7);animation:p2pPulse 1s ease-in-out infinite;}
+@keyframes p2pPulse{0%,100%{opacity:.45;}50%{opacity:1;}}
 .lobby .lobby-card{background:#222a26;border:1px solid rgba(255,255,255,.07);
   border-radius:16px;box-shadow:0 12px 40px rgba(0,0,0,.4);backdrop-filter:none;padding:26px 22px;gap:16px;}
 .lobby .brand{display:block;border-left:4px solid var(--tomato);padding-left:13px;margin-bottom:2px;}

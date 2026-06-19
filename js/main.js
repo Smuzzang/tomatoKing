@@ -53,6 +53,7 @@ function initLobby() {
   $('#leaveBtn').addEventListener('click', onLeaveClick);
   $('#fpCards').addEventListener('click', onFirstPickClick); // 선 정하기
   subscribeRooms(); // 공개 방 목록(Firebase)
+  checkP2PStatus(); // P2P 중계(PeerJS 브로커) 상태 표시
 
   // 창 크기 변경 시 바닥패 위치를 현재 화면에 맞춰 재배치
   window.addEventListener('resize', () => {
@@ -89,6 +90,39 @@ function show(id) {
   const chat = $('#chat'); if (chat) chat.hidden = !(id === 'table' && App.mode !== 'single'); // 온라인에서만
   const lv = $('#leaveBtn'); if (lv) lv.hidden = (id !== 'table');
   applyCoffeeUI();
+  if (id === 'lobby') maybeRecheckP2P(); // 로비로 돌아오면 중계 상태 갱신(throttle)
+}
+
+/* ---- P2P 중계(PeerJS 브로커) 상태등 ---- */
+function setP2P(state) {
+  const dot = $('#p2pDot'); if (!dot) return;
+  dot.className = 'p2p-dot ' + state;
+  const wrap = $('#p2pStatus');
+  if (wrap) wrap.title = state === 'ok' ? '온라인 대전 중계 정상 — 방 만들기 가능'
+    : state === 'bad' ? '중계 서버(PeerJS)가 응답하지 않아요. 방 생성이 안 될 수 있어요 — 잠시 후 다시 시도하세요.'
+    : '중계 서버 연결 확인 중…';
+}
+function checkP2PStatus() {
+  if (typeof Peer === 'undefined') { setP2P('bad'); return; }
+  if (App._p2pChecking) return;
+  App._p2pChecking = true; App._p2pLastCheck = Date.now();
+  setP2P('checking');
+  let done = false, peer;
+  const finish = (state) => {
+    if (done) return; done = true; App._p2pChecking = false;
+    try { peer && peer.destroy(); } catch (_) {}
+    setP2P(state);
+  };
+  try { peer = new Peer(); } catch (e) { finish('bad'); return; }
+  peer.on('open', () => finish('ok'));
+  peer.on('error', () => finish('bad')); // network/server-error 등 = 브로커 불가
+  setTimeout(() => finish('bad'), 9000);  // 응답 없으면 불가로 간주
+}
+/* 로비 재진입 시 갱신 — 브로커에 과도한 요청(=rate-limit 악화) 방지로 20초 throttle */
+function maybeRecheckP2P() {
+  if (App._p2pChecking) return;
+  if (App._p2pLastCheck && Date.now() - App._p2pLastCheck < 20000) return;
+  checkP2PStatus();
 }
 /* ☕ 커피 내기 방: 채팅창 반으로 + 양심 문구 노출 */
 function applyCoffeeUI() {
