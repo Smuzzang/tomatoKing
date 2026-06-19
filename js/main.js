@@ -59,6 +59,7 @@ function initLobby() {
   window.addEventListener('resize', () => {
     clearTimeout(App._rzTo);
     App._rzTo = setTimeout(() => {
+      if (!$('#table').hidden) fitTable(); // 창 크기 변경 → 카드 크기 재계산
       if (!$('#table').hidden && App.state && !App._animating) scatterFloor();
       clampChat();
     }, 100);
@@ -1117,6 +1118,7 @@ function render() {
     if (App._flyingFloorIds && App._flyingFloorIds.has(c.id)) el.style.opacity = '0';
     fl.appendChild(el);
   });
+  fitTable();     // 창 크기에 맞춰 카드 크기 조정(손패가 한 줄에 들어가게)
   scatterFloor(); // 슬롯 배치(같은 월 겹침)
 
   // 더미
@@ -1394,6 +1396,27 @@ function freeFloorSlotScreen() {
   });
   const c = slotCoordById(best, g);
   return { left: fr.left + c.x - cw / 2, top: fr.top + c.y - chh / 2, width: cw, height: chh };
+}
+
+/* 창 크기에 맞춰 카드 크기(--card-w)를 계산.
+ * 손패 10장이 한 줄에 들어가는 가로 한계 + 위·아래 손패가 넘치지 않는 세로 한계 중 작은 값.
+ * (fly 카드·바닥패도 같은 --card-w를 쓰므로 자동으로 함께 줄어듦) */
+function fitTable() {
+  const table = $('#table'); if (!table || table.hidden) return;
+  const center = table.querySelector('.col-center');
+  const hand = $('#myHand');
+  if (!center || !hand) return;
+  const cs = getComputedStyle(hand);
+  const colGap = parseFloat(cs.columnGap) || 4;
+  const padX = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
+  const centerW = center.clientWidth;
+  const byWidth = Math.floor((centerW - padX - 9 * colGap - 8) / 10); // 손패 10장 한 줄(+8 여유)
+  const byHeight = Math.floor((window.innerHeight - 96) / 5.2);        // 위·아래 손패 + 바닥 여유
+  let cw = Math.min(byWidth, byHeight, 96);
+  cw = Math.max(36, cw);
+  const root = document.documentElement.style;
+  root.setProperty('--card-w', cw + 'px');
+  root.setProperty('--card-h', Math.round(cw * 1.64) + 'px');
 }
 
 /* 바닥패 배치: 중앙 덱을 중심으로 한 원형 슬롯에 배치.
