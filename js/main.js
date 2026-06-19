@@ -185,13 +185,15 @@ function startSingle() {
 /* 실제 딜링 (starter = 선) */
 function dealSingle(starter) {
   const seed = (Math.random() * 1e9) | 0;
-  const stake = nextStakeMult(); // 이전 판이 나가리였으면 누적 배수
+  const stake = (App._pendingStake != null) ? App._pendingStake : nextStakeMult(); // 유저가 고른 배수 우선
+  App._pendingStake = null;
   App.state = window.Engine.newGame({
     seed, names: [App.nick, 'AI'], aiFlags: [false, true], mode: App.diff, starter: starter || 0, stakeMult: stake,
   });
   resetRoundState();
   clearFx();
   show('table'); dealTicks(); afterChange();
+  if (stake > 1) announceStake(stake);
 }
 
 /* 다음 판 선(先): 이긴 사람. 나가리면 이전 선 유지 */
@@ -201,12 +203,53 @@ function nextStarter() {
   if (s.result.draw) return (s.starter != null ? s.starter : 0);
   return s.result.winner;
 }
-/* 다음 판 나가리 누적 배수: 나가리면 ×2 누적, 승부 나면 1로 리셋 */
+/* 다음 판 나가리 누적 배수(기본값 계산용). 실제 적용은 유저 선택(App._pendingStake)이 우선 */
 function nextStakeMult() {
   const s = App.state;
   if (!s || !s.result) return 1;
   if (s.result.draw) return (s.stakeMult || 1) * 2;
   return 1;
+}
+/* 이번 판이 누적 배수(>1) 판임을 양쪽에 알림 */
+function announceStake(mult) {
+  toast(`🔥 이번 판은 ${mult}배 판!`, 'gold');
+  flash('go-gold');
+  if (window.SFX && SFX.sparkle) SFX.sparkle();
+}
+
+/* 총통 종료 — 양쪽 유저에게 큰 컷 + 효과로 명확히 알림 */
+function announceChongtong(result) {
+  const iWon = result.winner === App.myIdx;
+  showBigCut(iWon ? '👑 총통 — 승!' : '총통 — 패…', !iWon);
+  flash(iWon ? 'go-gold' : 'go-red');
+  shake();
+  if (window.SFX) { iWon ? (SFX.sparkle && SFX.sparkle()) : (SFX.thud && SFX.thud()); }
+  if (App.mode !== 'single') {
+    const w = App.state.players[result.winner];
+    chatSystem(`👑 총통! ${w.name} 즉시 승리 (손패 4장 같은 월)`);
+  }
+}
+
+/* 나가리 다음 판 배수 선택 — 싱글은 즉시, 온라인은 둘 다 2배 골라야 2배 */
+function chooseNextStake(stake) {
+  if (App.mode === 'single') {
+    App._pendingStake = stake;
+    stopTimer(); clearFx();
+    dealSingle(nextStarter());
+    return;
+  }
+  // 온라인: 다시하기 동의 + 내 배수 희망 전송
+  if (!App._rematchWant) App._rematchWant = [false, false];
+  if (!App._stakeWish) App._stakeWish = [null, null];
+  App._rematchWant[App.myIdx] = true;
+  App._stakeWish[App.myIdx] = stake;
+  App.net && App.net.send({ t: 'rematchWant', stake });
+  const a = $('#mDouble'), b = $('#mNormal');
+  if (a) a.disabled = true;
+  if (b) b.disabled = true;
+  toast(stake > 1 ? '2배 선택! 상대 동의 대기…' : '일반 판 선택! 상대 동의 대기…', 'gold');
+  chatSystem(stake > 1 ? '내가 다음 판 2배를 원해요 🔥' : '내가 일반 판을 원해요');
+  if (App.mode === 'host') checkRematch();
 }
 
 /* 딜링 효과음 */
@@ -358,7 +401,9 @@ function onHostData(msg) {
   if (msg.t === 'ready') { App._guestReady = true; chatSystem('상대가 준비했어요'); showRoomWait(); return; }
   if (msg.t === 'rematchWant') { // 게스트가 다시하기 원함
     if (!App._rematchWant) App._rematchWant = [false, false];
-    App._rematchWant[1] = true; oppWantsRematch(); checkRematch(); return;
+    App._rematchWant[1] = true;
+    if (msg.stake != null) { if (!App._stakeWish) App._stakeWish = [null, null]; App._stakeWish[1] = msg.stake; }
+    oppWantsRematch(msg.stake); checkRematch(); return;
   }
   if (msg.t === 'chat') { addChatMessage(msg.name, msg.text, false); return; }
   if (msg.t === 'intent' && msg.intent && msg.intent.type === 'pickFirst') { hostReceivePick(msg.intent.slot); return; }
@@ -368,7 +413,7 @@ function onGuestData(msg) {
   if (!msg || typeof msg !== 'object') return;
   if (msg.t === 'whoami') { App._hostName = (msg.name || '상대').slice(0, 8); if (!$('#waiting').hidden) showRoomWait(); return; }
   if (msg.t === 'roominfo') { App._roomTitle = msg.title || '대전 방'; App._coffee = !!msg.coffee; if (msg.host) App._hostName = msg.host; if (!$('#waiting').hidden) showRoomWait(); applyCoffeeUI(); return; }
-  if (msg.t === 'rematchWant') { oppWantsRematch(); return; } // 호스트가 다시하기 원함(피드백)
+  if (msg.t === 'rematchWant') { oppWantsRematch(msg.stake); return; } // 호스트가 다시하기 원함(피드백)
   if (msg.t === 'chat') { addChatMessage(msg.name, msg.text, false); return; }
   if (msg.t === 'draw') { guestShowDraw(msg); return; }
   if (msg.t === 'drawResult') { guestShowDrawResult(msg); return; }
@@ -378,7 +423,10 @@ function onGuestData(msg) {
     // 새 게임(재대국) 감지 → 카운터 리셋 + 결과 모달 닫기
     const fresh = (!snap.playSeq) && snap.phase === 'await_play'
       && snap.players[0].captured.length === 0 && snap.players[1].captured.length === 0;
-    if (fresh) { App._seq = 0; App._cap = [0, 0]; App._go = [0, 0]; App._freshDeal = true; }
+    if (fresh) {
+      App._seq = 0; App._cap = [0, 0]; App._go = [0, 0]; App._freshDeal = true;
+      if ((snap.stakeMult || 1) > 1) setTimeout(() => announceStake(snap.stakeMult), 600); // 누적 배수 판 알림
+    }
     if (snap.phase !== 'ended') $('#modal').hidden = true;
     App.state = snap;
     if (App._hostName) App.state.players[0].name = App._hostName;
@@ -636,6 +684,14 @@ function decideGoStop(d) {
 function showResult(result) {
   const box = $('#modalBox');
   if (!result) return;
+  // 총통: 패를 깔기도 전에 즉시 승부 → 먼저 큰 컷으로 양쪽에 알리고 잠시 뒤 결과 모달
+  // (게임별 1회만. seed로 식별 — 게스트는 resetRoundState를 안 거치므로 boolean 대신 seed 사용)
+  if (result.chongtong && App._chongtongShownSeed !== App.state.seed) {
+    App._chongtongShownSeed = App.state.seed;
+    announceChongtong(result);
+    setTimeout(() => showResult(result), 1200);
+    return;
+  }
   if (window.SFX) {
     if (result.draw) SFX.flip();
     else if (result.winner === App.myIdx) SFX.win();
@@ -646,10 +702,44 @@ function showResult(result) {
       <button class="btn-home" id="mHome">${App.mode === 'single' ? '메인' : '게임방 나가기'}</button>
     </div>`;
   if (result.draw) {
-    const nm = nextStakeMult(); // 이번 나가리로 다음 판이 몇 배가 되는지
-    const accum = nm > 1 ? `<p class="nagari-accum">🔥 다음 판은 <b>${nm}배</b>!</p>` : '';
-    box.innerHTML = `<h2>나가리 😶</h2><p class="muted">둘 다 점수를 못 냈어요</p>${accum}${actions}`;
-  } else {
+    // 나가리 → 다음 판 배수를 유저가 선택 (온라인은 둘 다 동의해야 2배)
+    const doubled = (App.state.stakeMult || 1) * 2;
+    const note = App.mode === 'single'
+      ? '다음 판 점수를 몇 배로 걸까요?'
+      : '다음 판 점수를 몇 배로? <b>둘 다 2배를 골라야</b> 2배가 돼요.';
+    box.innerHTML = `<h2>나가리 😶</h2>
+      <p class="muted">둘 다 점수를 못 냈어요</p>
+      <p class="nagari-accum">${note}</p>
+      <div class="modal-actions">
+        <button class="btn-go" id="mDouble">🔥 묻고 따블로 가 (${doubled}배)</button>
+        <button class="btn-stop" id="mNormal">😶 그냥 간다</button>
+      </div>
+      <div class="modal-actions"><button class="btn-home" id="mHome">${App.mode === 'single' ? '메인' : '게임방 나가기'}</button></div>`;
+    App._rematchWant = [false, false];
+    App._stakeWish = [null, null];
+    $('#modal').hidden = false;
+    $('#mHome').onclick = leaveToLobby;
+    $('#mDouble').onclick = () => chooseNextStake(doubled);
+    $('#mNormal').onclick = () => chooseNextStake(1);
+    return;
+  }
+  if (result.chongtong) {
+    const iWon = result.winner === App.myIdx;
+    const w = App.state.players[result.winner];
+    box.innerHTML = `
+      <h2>${iWon ? '👑 총통 승리!' : '😵 총통 패배'}</h2>
+      <p class="muted"><b>${w.name}</b> — 손패 4장이 같은 월!<br>패를 깔기도 전에 즉시 승부가 났어요.</p>
+      <div class="score-big">${result.final}점</div>
+      <div class="flags">${(result.flags || []).map(f => `<span class="flag">${f}</span>`).join('')}</div>
+      <p class="muted">${iWon ? '운빨도 실력이죠 😎' : '이건 어쩔 수 없어요… 🍀'}</p>
+      ${actions}`;
+    App._rematchWant = [false, false];
+    $('#modal').hidden = false;
+    $('#mAgain').onclick = rematch;
+    $('#mHome').onclick = leaveToLobby;
+    return;
+  }
+  {
     const iWon = result.winner === App.myIdx;
     const w = App.state.players[result.winner];
     // 진 사람에게: 점당 100원이었으면 얼마 잃었나 드립
@@ -705,14 +795,24 @@ function checkRematch() {
   if (App.mode !== 'host' || !App._rematchWant) return;
   if (App._rematchWant[0] && App._rematchWant[1]) {
     App._rematchWant = [false, false];
+    // 나가리 다음 판: 둘 다 2배를 원했을 때만 ×2 누적, 아니면 일반 판
+    if (App.state && App.state.result && App.state.result.draw) {
+      const w = App._stakeWish || [1, 1];
+      const both2x = (w[0] || 1) > 1 && (w[1] || 1) > 1;
+      App._pendingStake = both2x ? (App.state.stakeMult || 1) * 2 : 1;
+      App._stakeWish = [null, null];
+    }
     stopTimer(); clearFx();
     hostStartGame(nextStarter());
   }
 }
 /* 상대가 다시하기를 원함(피드백) */
-function oppWantsRematch() {
-  chatSystem('상대가 다시하기를 원해요 👀');
-  toast('상대가 다시하기를 원해요', 'gold');
+function oppWantsRematch(stake) {
+  const msg = (stake != null)
+    ? (stake > 1 ? '상대가 다음 판 2배를 원해요 🔥' : '상대가 일반 판을 원해요')
+    : '상대가 다시하기를 원해요 👀';
+  chatSystem(msg);
+  toast(msg, 'gold');
 }
 function leaveToLobby() {
   stopTimer();
@@ -734,11 +834,13 @@ function hostStartGame(starter) {
   const names = App.state ? [App.state.players[0].name, App.state.players[1].name]
                           : [App.nick, App._guestName || '상대'];
   const seed = (Math.random() * 1e9) | 0;
-  const stake = nextStakeMult(); // 이전 판이 나가리였으면 누적 배수
+  const stake = (App._pendingStake != null) ? App._pendingStake : nextStakeMult(); // 유저가 고른 배수 우선
+  App._pendingStake = null;
   App.state = window.Engine.newGame({ seed, names, aiFlags: [false, false], mode: 'classic', starter: starter || 0, stakeMult: stake });
   resetRoundState();
   clearFx();
   show('table'); dealTicks(); afterChange();
+  if (stake > 1) announceStake(stake);
 }
 
 /* ---------------- 선(先) 정하기 ---------------- */
@@ -1849,6 +1951,9 @@ function initDev() {
     '폭탄빚(더미패)': () => devStart(s => { s.players[0].hand = [C('m7_0')]; s.players[0].deckDebt = 2; s.floor = [C('m5_1')]; s.deck = [C('m5_2'), C('m8_0'), C('m8_1')]; }, '손패가 있어도 💣 더미패를 골라 쓸 수 있음'),
     '폭탄→더미패선택': () => devStart(s => { s.players[0].hand = [C('m5_0'), C('m5_1'), C('m5_2')]; s.floor = [C('m5_3'), C('m7_0'), C('m7_1')]; s.deck = [C('m1_0'), C('m7_2'), C('m8_0')]; }, '💣5월 폭탄(카드 하나씩 나감) → 더미패 까면 7월 2장과 매칭 → 한 장 골라도 진행되는지 확인'),
     '패배결과': () => devStart(s => { s.phase = 'ended'; s.winner = 1; s.result = { winner: 1, base: 7, withGo: 8, multiplier: 2, final: 16, goCount: 1, goBak: false, flags: ['1고', '피박'] }; s.players[1].name = 'AI'; s.players[1].captured = [C('m1_0'), C('m3_0'), C('m8_0'), C('m1_2')]; }, '패배 결과 팝업(점당 100원 드립) 확인'),
+    '총통(승)': () => devStart(s => { s.seed = 9001; s.phase = 'ended'; s.winner = 0; s.stakeMult = 2; s.players[0].name = '나'; s.players[1].name = 'AI'; s.players[0].captured = []; s.players[1].captured = []; s.result = { winner: 0, base: 7, withGo: 7, multiplier: 1, stakeMult: 2, flags: ['총통', '나가리누적 ×2'], final: 14, goCount: 0, chongtong: true }; }, '총통 승리 컷+결과 (나가리누적 ×2 → 14점)'),
+    '총통(패)': () => devStart(s => { s.seed = 9002; s.phase = 'ended'; s.winner = 1; s.stakeMult = 1; s.players[0].name = '나'; s.players[1].name = 'AI'; s.players[0].captured = []; s.players[1].captured = []; s.result = { winner: 1, base: 7, withGo: 7, multiplier: 1, stakeMult: 1, flags: ['총통'], final: 7, goCount: 0, chongtong: true }; }, '총통 패배 컷+결과'),
+    '나가리선택': () => devStart(s => { s.phase = 'ended'; s.stakeMult = 1; s.result = { draw: true }; }, '나가리 → 다음 판 배수 선택 모달'),
   };
 
   const bar = document.createElement('div');

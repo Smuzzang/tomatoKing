@@ -90,7 +90,9 @@ function newGame({ seed, names = ['나', '상대'], aiFlags = [false, true], mod
     if (m) {
       state.phase = 'ended';
       state.winner = i;
-      state.result = { winner: i, base: 7, withGo: 7, multiplier: 1, flags: ['총통'], final: 7, goCount: 0, chongtong: true };
+      const sm = state.stakeMult || 1; // 나가리 누적 배수 반영(일반 승리와 동일하게)
+      const flags = ['총통']; if (sm > 1) flags.push(`나가리누적 ×${sm}`);
+      state.result = { winner: i, base: 7, withGo: 7, multiplier: 1, stakeMult: sm, flags, final: 7 * sm, goCount: 0, chongtong: true };
     }
   }
   return state;
@@ -409,7 +411,11 @@ function finishGame(state, winner) {
   const base = window.Rules.scoreOf(w.captured).total;
   const withGo = window.Rules.applyGo(base, w.goCount);
   const goBak = lo.goCount > 0; // 패자가 고 외쳤었다 → 고박
-  const bak = window.Rules.bakMultiplier(w.captured, lo.captured, { goBak, shake: w.shake, bomb: w.bomb });
+  // 흔들기·폭탄은 그 판 전체에 걸리는 배수(정통 룰) → 승자·패자 양쪽 것을 모두 반영.
+  // (흔든 사람이 져도 그 ×2가 정산에 적용되어 두 배로 물어줌)
+  const shake = (w.shake || 0) + (lo.shake || 0);
+  const bomb = (w.bomb || 0) + (lo.bomb || 0);
+  const bak = window.Rules.bakMultiplier(w.captured, lo.captured, { goBak, shake, bomb });
   const stakeMult = state.stakeMult || 1; // 나가리 누적(이전 판들이 나가리면 ×2씩)
   const flags = bak.flags.slice();
   if (stakeMult > 1) flags.push(`나가리누적 ×${stakeMult}`);
