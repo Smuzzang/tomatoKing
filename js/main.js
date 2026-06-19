@@ -1638,8 +1638,8 @@ function animateTurn(s, lp, mine) {
     App._playSrcRect = null;
   }
 
-  // 1b) 손패가 먹은 바닥패만 즉시 움찔(덱이 먹을 바닥패는 아직 안 건드림)
-  if (lc) addFloorOverlays(lc.handFloorCards || lc.floorCards, persistent);
+  // 1b) 손패가 먹은 바닥패: 오버레이는 즉시 띄우되, 움찔은 손패 카드가 착지할 때(낼 때 미리 움찔 방지)
+  if (lc) addFloorOverlays(lc.handFloorCards || lc.floorCards, persistent, Math.round(dur * 0.84));
 
   // 2) 더미 패: 떠올라 공개 → 바닥에 떨어짐
   let deckLand = dur;
@@ -1655,9 +1655,9 @@ function animateTurn(s, lp, mine) {
         flyDeck(deckSrc(), deckTgt, lp.deck, dur); // 바닥에 떨어져 깔림
       }
     }, deckDelay);
-    // 덱이 먹은 바닥패는 덱 카드가 착지할 때 움찔(미리 움찔 방지)
+    // 덱이 먹은 바닥패: 오버레이는 즉시 띄워 사라지지 않게 하고, 움찔만 덱 카드 착지 시점으로 지연
     if (lc && lc.deckFloorCards && lc.deckFloorCards.length) {
-      setTimeout(() => addFloorOverlays(lc.deckFloorCards, persistent), deckDelay + Math.round((dur + 300) * 0.84));
+      addFloorOverlays(lc.deckFloorCards, persistent, deckDelay + Math.round((dur + 300) * 0.84));
     }
     deckLand = deckDelay + dur + deckExtra + 120;
   }
@@ -1676,8 +1676,10 @@ function animateTurn(s, lp, mine) {
   return sweepStart; // 이벤트 토스트는 정산 보인 시점에
 }
 
-/* 바닥에서 먹힌 패들을 제자리에 오버레이로 띄움(움찔→쓸어담기 대상) */
-function addFloorOverlays(cards, persistent) {
+/* 바닥에서 먹힌 패들을 제자리에 오버레이로 띄움(움찔→쓸어담기 대상)
+ * flinchDelay>0 이면 오버레이는 즉시 띄우되(바닥패가 사라지지 않게) 움찔 애니메이션만 그만큼 지연.
+ * (덱이 먹는 바닥패: 덱 카드가 착지할 때 움찔해야 하지만, 그 전에 사라지면 안 됨) */
+function addFloorOverlays(cards, persistent, flinchDelay) {
   const pf = App._prevFloorRects || {};
   const fpos = App._floorPos || {};
   (cards || []).forEach(card => {
@@ -1689,8 +1691,11 @@ function addFloorOverlays(cards, persistent) {
     el.style.transform = `rotate(${rot.toFixed ? rot.toFixed(1) : rot}deg)`;
     el.style.zIndex = '14'; // 낸 패(22)보다 아래
     el.dataset.landRot = rot;
-    el.animate([{ transform: `scale(1) rotate(${rot}deg)` }, { transform: `scale(1.08) rotate(${rot}deg)` }, { transform: `scale(1) rotate(${rot}deg)` }],
+    const flinch = () => el.animate(
+      [{ transform: `scale(1) rotate(${rot}deg)` }, { transform: `scale(1.08) rotate(${rot}deg)` }, { transform: `scale(1) rotate(${rot}deg)` }],
       { duration: 280, easing: 'ease-out' });
+    if (flinchDelay && flinchDelay > 0) setTimeout(flinch, flinchDelay); // 즉시 보이되 움찔만 덱 착지 때
+    else flinch();
     persistent.push({ el, x: r.left, y: r.top, w: r.width, h: r.height });
   });
 }
@@ -2011,6 +2016,7 @@ function initDev() {
     '총통(승)': () => devStart(s => { s.seed = 9001; s.phase = 'ended'; s.winner = 0; s.stakeMult = 2; s.players[0].name = '나'; s.players[1].name = 'AI'; s.players[0].captured = []; s.players[1].captured = []; s.result = { winner: 0, base: 7, withGo: 7, multiplier: 1, stakeMult: 2, flags: ['총통', '나가리누적 ×2'], final: 14, goCount: 0, chongtong: true }; }, '총통 승리 컷+결과 (나가리누적 ×2 → 14점)'),
     '총통(패)': () => devStart(s => { s.seed = 9002; s.phase = 'ended'; s.winner = 1; s.stakeMult = 1; s.players[0].name = '나'; s.players[1].name = 'AI'; s.players[0].captured = []; s.players[1].captured = []; s.result = { winner: 1, base: 7, withGo: 7, multiplier: 1, stakeMult: 1, flags: ['총통'], final: 7, goCount: 0, chongtong: true }; }, '총통 패배 컷+결과'),
     '나가리선택': () => devStart(s => { s.phase = 'ended'; s.stakeMult = 1; s.result = { draw: true }; }, '나가리 → 다음 판 배수 선택 모달'),
+    '손덱4장먹기': () => devStart(s => { s.players[0].hand = [C('m5_0'), C('m9_0')]; s.floor = [C('m5_1'), C('m7_1'), C('m1_0')]; s.deck = [C('m7_2'), C('m8_0')]; }, '5월 내면 바닥5월 먹고→덱에서 7월 까서 바닥7월 먹기(덱 매칭 바닥패 안 사라지는지)'),
   };
 
   const bar = document.createElement('div');
