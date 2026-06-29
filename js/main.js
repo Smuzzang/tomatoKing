@@ -57,14 +57,27 @@ function initLobby() {
   window.FX && FX.init(); // PixiJS 효과 레이어(반짝임·폭발·금가루)
 
   // 창 크기 변경 시 바닥패 위치를 현재 화면에 맞춰 재배치
-  window.addEventListener('resize', () => {
+  const refitTable = () => {
     clearTimeout(App._rzTo);
     App._rzTo = setTimeout(() => {
-      if (!$('#table').hidden) fitTable(); // 창 크기 변경 → 카드 크기 재계산
+      if (!$('#table').hidden) fitTable(); // 창/컨테이너 크기 변경 → 카드 크기 재계산
       if (!$('#table').hidden && App.state && !App._animating) scatterFloor();
       clampChat();
-    }, 100);
-  });
+    }, 90);
+  };
+  window.addEventListener('resize', refitTable);
+  // 아케이드 임베드(iframe) 등에서 window resize가 안 잡혀도 컨테이너 실제 크기 변화를 직접 감지
+  if (window.ResizeObserver) {
+    const ro = new ResizeObserver(refitTable);
+    ro.observe(document.documentElement);
+    const tbl = $('#table'); if (tbl) ro.observe(tbl);
+  }
+  // 안전망: 이벤트가 안 와도 폴링으로 크기 변화를 감지해 카드 재계산(임베드/일부 브라우저 대비)
+  setInterval(() => {
+    if ($('#table').hidden) return;
+    const w = document.documentElement.clientWidth, h = document.documentElement.clientHeight;
+    if (w !== App._lastVW || h !== App._lastVH) { App._lastVW = w; App._lastVH = h; refitTable(); }
+  }, 300);
 
   initChat(); // 도킹 채팅: 접기/펼치기 토글
 }
@@ -1414,7 +1427,7 @@ function fitTable() {
   const rightPad = parseFloat(cs.paddingRight) || 16;
   const centerW = center.clientWidth;
   // 좁은 임베드에선 좌하단 먹은패 자리를 손패 왼쪽 여백으로 확보(겹침 방지). 큰 화면(전체화면)은 0 → 기존과 동일.
-  const capReserve = centerW < 760 ? Math.round(Math.min(centerW * 0.2, 150)) : 0;
+  const capReserve = centerW < 760 ? Math.round(Math.min(centerW * 0.14, 110)) : 0;
   hand.style.paddingLeft = capReserve + 'px';
   const byWidth = Math.floor((centerW - capReserve - rightPad - 9 * colGap - 8) / 10); // 손패 10장 한 줄(+8 여유)
   const byHeight = Math.floor((window.innerHeight - 96) / 5.2);        // 위·아래 손패 + 바닥 여유
