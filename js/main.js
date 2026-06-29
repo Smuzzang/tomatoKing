@@ -1423,6 +1423,10 @@ function fitTable() {
   const root = document.documentElement.style;
   root.setProperty('--card-w', cw + 'px');
   root.setProperty('--card-h', Math.round(cw * 1.64) + 'px');
+  // 먹은패 카드 크기(비율 유지) — .card-sm이 --card-w를 로컬 36px로 덮으므로 별도 변수 사용
+  const capw = Math.max(14, Math.round(cw * 0.54));
+  root.setProperty('--cap-w', capw + 'px');
+  root.setProperty('--cap-h', Math.round(capw * 1.64) + 'px');
 }
 
 /* 바닥패 배치: 중앙 덱을 중심으로 한 원형 슬롯에 배치.
