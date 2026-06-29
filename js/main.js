@@ -1411,12 +1411,15 @@ function fitTable() {
   if (!center || !hand) return;
   const cs = getComputedStyle(hand);
   const colGap = parseFloat(cs.columnGap) || 4;
-  const padX = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
+  const rightPad = parseFloat(cs.paddingRight) || 16;
   const centerW = center.clientWidth;
-  const byWidth = Math.floor((centerW - padX - 9 * colGap - 8) / 10); // 손패 10장 한 줄(+8 여유)
+  // 좁은 임베드에선 좌하단 먹은패 자리를 손패 왼쪽 여백으로 확보(겹침 방지). 큰 화면(전체화면)은 0 → 기존과 동일.
+  const capReserve = centerW < 760 ? Math.round(Math.min(centerW * 0.2, 150)) : 0;
+  hand.style.paddingLeft = capReserve + 'px';
+  const byWidth = Math.floor((centerW - capReserve - rightPad - 9 * colGap - 8) / 10); // 손패 10장 한 줄(+8 여유)
   const byHeight = Math.floor((window.innerHeight - 96) / 5.2);        // 위·아래 손패 + 바닥 여유
   let cw = Math.min(byWidth, byHeight, 96);
-  cw = Math.max(36, cw);
+  cw = Math.max(22, cw);   // 작은 화면에선 더 줄어들게(손패 한 줄 유지·겹침 방지)
   const root = document.documentElement.style;
   root.setProperty('--card-w', cw + 'px');
   root.setProperty('--card-h', Math.round(cw * 1.64) + 'px');

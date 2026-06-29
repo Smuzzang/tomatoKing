@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "matgo-static",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "8765"],
+      "port": 8765
+    },
+    {
+      "name": "poker-static",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "8780", "--directory", "C:/Users/tomatochain/Desktop/이승호 기획 업무 기록/8. 통통 아케이드/poker"],
+      "port": 8780
+    }
+  ]
+}
