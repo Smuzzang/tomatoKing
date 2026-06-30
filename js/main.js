@@ -60,7 +60,8 @@ function initLobby() {
   const refitTable = () => {
     clearTimeout(App._rzTo);
     App._rzTo = setTimeout(() => {
-      if (!$('#table').hidden) fitTable(); // 창/컨테이너 크기 변경 → 카드 크기 재계산
+      scaleStage(); // 화면에 맞춰 스테이지 통째로 비율 스케일
+      if (!$('#table').hidden) fitTable();
       if (!$('#table').hidden && App.state && !App._animating) scatterFloor();
       clampChat();
     }, 90);
@@ -1134,7 +1135,8 @@ function render() {
     if (App._flyingFloorIds && App._flyingFloorIds.has(c.id)) el.style.opacity = '0';
     fl.appendChild(el);
   });
-  fitTable();     // 창 크기에 맞춰 카드 크기 조정(손패가 한 줄에 들어가게)
+  scaleStage();   // 스테이지 통째로 비율 스케일(포커식)
+  fitTable();     // 고정 스테이지 기준 카드 크기
   scatterFloor(); // 슬롯 배치(같은 월 겹침)
 
   // 더미
@@ -1191,11 +1193,12 @@ function positionBombBtn(btn, month) {
   const left = Math.min(...rects.map(r => r.left));
   const right = Math.max(...rects.map(r => r.right));
   const top = Math.min(...rects.map(r => r.top));
-  const tR = $('#table').getBoundingClientRect();
-  const cx = (left + right) / 2 - tR.left;
+  const sc = App._scale || 1;
+  const tR = ($('#gameStage') || $('#table')).getBoundingClientRect();
+  const cx = ((left + right) / 2 - tR.left) / sc;   // 스케일 보정 → 스테이지(디자인) 좌표
   const bw = btn.offsetWidth || 130, bh = btn.offsetHeight || 40;
   btn.style.left = Math.round(cx - bw / 2) + 'px';
-  btn.style.top = Math.round(top - tR.top - bh - 12) + 'px';
+  btn.style.top = Math.round((top - tR.top) / sc - bh - 12) + 'px';
 }
 
 /* ---------------- 턴 타이머(20초) ---------------- */
@@ -1270,7 +1273,7 @@ function ensureBurnTimer() {
   const el = document.createElement('div');
   el.id = 'burnTimer'; el.className = 'burn-timer'; el.hidden = true;
   el.innerHTML = BURN_TPL;
-  $('#table').appendChild(el);
+  ($('#gameStage') || $('#table')).appendChild(el);
 }
 function randomCardImg() {
   const m = 1 + (Math.random() * 12 | 0), i = 1 + (Math.random() * 4 | 0);
@@ -1411,12 +1414,20 @@ function freeFloorSlotScreen() {
     if (md > bestScore) { bestScore = md; best = id; }
   });
   const c = slotCoordById(best, g);
-  return { left: fr.left + c.x - cw / 2, top: fr.top + c.y - chh / 2, width: cw, height: chh };
+  const sc = App._scale || 1;   // c.x/cw는 디자인(스테이지) 좌표 → 화면 좌표로 스케일 변환(fly는 body=화면 공간)
+  return { left: fr.left + (c.x - cw / 2) * sc, top: fr.top + (c.y - chh / 2) * sc, width: cw * sc, height: chh * sc };
 }
 
-/* 창 크기에 맞춰 카드 크기(--card-w)를 계산.
- * 손패 10장이 한 줄에 들어가는 가로 한계 + 위·아래 손패가 넘치지 않는 세로 한계 중 작은 값.
- * (fly 카드·바닥패도 같은 --card-w를 쓰므로 자동으로 함께 줄어듦) */
+/* 포커식: 16:9 고정 스테이지를 화면에 맞춰 통째로 균일 스케일(레터박스). 모든 요소가 같이 줄어 안 겹침 */
+const STAGE_W = 1456, STAGE_H = 819;
+function scaleStage() {
+  const stage = $('#gameStage'); if (!stage) return;
+  const s = Math.min(window.innerWidth / STAGE_W, window.innerHeight / STAGE_H);
+  App._scale = s;
+  stage.style.transform = 'scale(' + s + ')';
+}
+
+/* 고정 스테이지(1456×819) 기준 카드 크기(--card-w) 계산 → 항상 일정, 스케일은 scaleStage가 담당 */
 function fitTable() {
   const table = $('#table'); if (!table || table.hidden) return;
   const center = table.querySelector('.col-center');
@@ -1426,11 +1437,11 @@ function fitTable() {
   const colGap = parseFloat(cs.columnGap) || 4;
   const rightPad = parseFloat(cs.paddingRight) || 16;
   const centerW = center.clientWidth;
-  // 좁은 임베드에선 좌하단 먹은패 자리를 손패 왼쪽 여백으로 확보(겹침 방지). 큰 화면(전체화면)은 0 → 기존과 동일.
-  const capReserve = centerW < 760 ? Math.round(Math.min(centerW * 0.14, 110)) : 0;
-  hand.style.paddingLeft = capReserve + 'px';
+  const capReserve = 0;            // 고정 스테이지는 항상 넓음 → 먹은패 여백 불필요
+  hand.style.paddingLeft = '0px';
   const byWidth = Math.floor((centerW - capReserve - rightPad - 9 * colGap - 8) / 10); // 손패 10장 한 줄(+8 여유)
-  const byHeight = Math.floor((window.innerHeight - 96) / 5.2);        // 위·아래 손패 + 바닥 여유
+  const stageEl = document.querySelector('.stage');
+  const byHeight = Math.floor(((stageEl ? stageEl.clientHeight : window.innerHeight) - 96) / 5.2);
   let cw = Math.min(byWidth, byHeight, 96);
   cw = Math.max(22, cw);   // 작은 화면에선 더 줄어들게(손패 한 줄 유지·겹침 방지)
   const root = document.documentElement.style;
